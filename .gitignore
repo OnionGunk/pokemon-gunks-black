@@ -1,0 +1,12 @@
+/.venv/
+/build/
+/baserom.txt
+__pycache__/
+*.nds
+*.sav
+*.SaveRAM
+*.state
+/emu/out/
+/emu/cmd.txt
+/emu/done.txt
+/emu/buttons.txt
