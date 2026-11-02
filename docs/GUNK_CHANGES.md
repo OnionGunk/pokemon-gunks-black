@@ -54,8 +54,8 @@ in-game · ⏳ planned · — skipped.
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
 | 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **Done.** FAST default (`text_fast_default`): a new game's options word is 0x0202 (retail 0x0201). INSTANT (`text_instant`, `options_instant`): text speed 3 prints 127 characters per frame through a new wait-table entry (plan step 3). In Options, tapping FAST while it's on switches to INSTANT: the button relabels to INSTANT (a new string in message file 29) and stays lit, and the help line says so; tapping again goes back to FAST. The D-pad still moves among SLOW, MID and FAST (Left from INSTANT goes to MID and the label turns back). Code: `gunk/code/options.c` (replaces the menu's tap handler and selected test, wraps its label setup and D-pad store). Checked in the game: the taps (2→3→2→3), D-pad Left/Right, CONFIRM keeping 3, the gift-box line appearing whole within 8 frames, and battle lines that close by themselves ("Go! Tepig!", "Bianca sent out Snivy!") showing whole with no lost letters (the Platinum INSTANT bug doesn't apply: the game's own printer copies the window every frame). | ✅ |
-| 18 | EXP bar twice as fast (c0644cff) | port | Battle gauge code in the battle overlays. Constant or small code patch. | ⏳ |
-| 19 | HP bars one pixel per frame (566793ec) | port | Same gauge code as #18. | ⏳ |
+| 18 | EXP bar twice as fast (c0644cff) | port | **Done** (`exp_bar_x2`, `gunk/code/battle.c`). The battle view (overlay 94) steps both bars with one routine, `FUN_overlay_d_94__02207f6c` (Gen 4's gauge stepper). The EXP bar's per-frame update (`02207ef0`, 10 cells = 80 px) now calls it twice. Checked: Tepig beating Bianca's Snivy, the same EXP gain animates for 80 frames in vanilla and 40 in Gunk's. | ✅ |
+| 19 | HP bars one pixel per frame (566793ec) | skip | **Black already has it.** The HP bar's step (`FUN_overlay_d_94__02207e1c`, 6 cells = 48 px) is the damage divided by the pixels the bar moves (`022080b0`), and for small max HP the stepper moves one pixel a frame in 8.8 fixed point. Platinum's change fixed Gen 4 draining one HP a frame. | — |
 | 20 | Auto-run, hold B to walk (c0644cff) | port | **Done** (`auto_run`). Black has no run toggle (hold B only; B2W2 doesn't add one either). Three branches in the field overlay flip: the grid-map step picker `FUN_overlay_d_21__021a4dc0` (Running Shoes flag 0x963 and B held → run 0x58, else walk 0x0C), the turn-in-place skip before it, and the rail-map picker `021a5edc`. Without the Running Shoes nothing changes. Checked in the game: with the shoes flag set, no B runs two tiles in the time B walks one. | ✅ |
 | 21 | Repel prompt when a Repel wears off (c0644cff) | port | Black has **no** prompt (B2W2 added it). The repel step counter is in the Encount block (0x21B00 +0x2D steps, +0x2E type). New field script + script command. | ⏳ |
 | 22 | Endless Repel key item from Mom (c0644cff) | port | New item: Black's item table has 627 entries (0-626) and unused IDs inside it. A key item with a script; Mom gives it at the start. | ⏳ |
@@ -124,9 +124,10 @@ before the next.
    ({3, 1, -2, -4, 6}: frames per character, or characters per frame when negative) via three mappers
    (`FUN_02012ffc` option as index, `FUN_02013020` option + 1, `FUN_02013050` 0,1,2 -> 4,0,1), clamped by
    `FUN_02013080`. INSTANT uses the padding byte at index 5 (-127); every mapper sends option 3 there. The Options
-   UI is in `gunk/code/options.c` (see #17). Next: the EXP bar ×2 and HP bars 1 px/frame. A battle state now
-   exists (the bedroom battle with Bianca, `emu/suite/out/_bt_movelist.state`, made by scripted A presses from the
-   start state); a first RAM-diff search for the HP readout found nothing, as the turn order varies between runs.
+   UI is in `gunk/code/options.c` (see #17). Bars: found by tracing the division routine (0x0209C2B0) during a
+   battle turn and keeping the calls whose divisor was a max HP. EXP ×2 done, HP already 1 px/frame (#18, #19).
+   The bedroom battle with Bianca is reachable by script: from the start state, Down, then A every 90 frames
+   (27 presses on FAST), then FIGHT (128, 90) and Tackle (64, 40); `emu/suite/out/` keeps states along the way.
    Message files: `tools/text5.py` reads and writes them (round-trips retail except the 2 pad bytes).
 4. **Auto-run (#20): done.** The keys come from GFL's key struct (update `FUN_02035F38`, getters `FUN_020362DC`
    trigger and `FUN_0203630C` held). The grid-map player controller is `FUN_overlay_d_21__021a41b0`, called each frame

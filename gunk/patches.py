@@ -239,5 +239,20 @@ def options_instant(rom):
     rom.replace_overlay(OVL_OPTIONS, bytes(code))
 
 
+OVL_BATTLE_VIEW = 94  # at 0x021F6560
+
+
+def exp_bar_x2(rom):
+    """The battle EXP bar fills twice as fast. Its per-frame update (FUN_overlay_d_94__02207ef0) steps the bar one
+    pixel a frame through the stepper it shares with the HP bar; the call now goes through
+    Gunk_ExpGauge_Step (gunk/code/battle.c), which steps twice. The HP bar already moves one pixel a frame in Black
+    (its step is the damage over the pixels it moves), so it stays as it is."""
+    code = bytearray(rom.overlay(OVL_BATTLE_VIEW))
+    base = rom.overlay_base(OVL_BATTLE_VIEW)
+    new = thumb_bl(0x02207F3A, code_syms['Gunk_ExpGauge_Step'])
+    patch(code, 0x02207F3A - base, thumb_bl(0x02207F3A, 0x02207F6C), new)  # bl Gauge_Step -> bl Gunk_ExpGauge_Step
+    rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home, options_instant]
+           code_home, options_instant, exp_bar_x2]
