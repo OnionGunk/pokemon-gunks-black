@@ -553,6 +553,22 @@ def move_tutor(rom):
     rom.replace_file(archive, events.save())
 
 
+def dexnav(rom):
+    """DexNav, first version (gunk/code/dexnav.c): R in tall grass meets a Pokémon of this route you haven't
+    caught yet (then the next, in turn), from its own grass slot. Hooks in the field overlay: the per-frame
+    input routine in its table at 0x021D8900, the per-frame step-encounter check (FUN_overlay_d_21__0218b208,
+    called twice), and the encounter's slot pick (FUN_overlay_d_21__021a954c, called at 0x021AA048)."""
+    code = bytearray(rom.overlay(OVL_FIELD))
+    base = rom.overlay_base(OVL_FIELD)
+    patch(code, 0x021D8900 - base, 'f12d1a02', struct.pack('<I', code_syms['Gunk_FieldInput'] | 1).hex())
+    for site in (0x02189CA8, 0x0218A314):  # bl the step-encounter check -> the wrapper
+        patch(code, site - base, thumb_bl(site, 0x0218B208), thumb_bl(site, code_syms['Gunk_StepEncount']))
+    pick = thumb_bl(0x021AA048, code_syms['Gunk_DexNav_PickSlots'])
+    patch(code, 0x021AA048 - base, thumb_bl(0x021AA048, 0x021A954C), pick)  # bl the slot pick -> the wrapper
+    rom.replace_overlay(OVL_FIELD, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
-           endless_repel, exp_all, field_moves, move_tutor]
+           endless_repel, exp_all, field_moves, move_tutor,
+           dexnav]
