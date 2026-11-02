@@ -45,7 +45,7 @@ its SHA-1 and refuses any other):
 
 ```
 py -3.13 -m venv .venv
-.venv/Scripts/python -m pip install ndspy
+.venv/Scripts/python -m pip install ndspy capstone
 echo C:/path/to/black.nds > baserom.txt
 .venv/Scripts/python build.py            # build/gunk-black.nds and build/gunk-black.bps (verified)
 .venv/Scripts/python build.py --vanilla  # the same pipeline with no patches: must equal the base ROM
