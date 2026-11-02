@@ -17,9 +17,10 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **INSTANT text:** in Options, tap FAST again to switch to INSTANT. New games start on FAST.
 - **The EXP bar fills twice as fast** in battle.
 - **IVs and EVs on the summary:** press A on the STATS page to cycle stats, IVs and EVs.
+- **Repel prompt:** when a Repel wears off and you have another, the game offers to use it.
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
 
-Planned: a Repel prompt and Endless Repel, Exp. All,
+Planned: Endless Repel, Exp. All,
 bag sorting, HM moves without teaching them, a Move Tutor in every Pokémon Center, and DexNav.
 
 ## Play it

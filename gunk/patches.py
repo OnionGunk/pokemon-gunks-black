@@ -7,6 +7,7 @@ assembles to the same bytes as retail.
 import struct
 
 from narc import Narc
+import script5
 import text5
 from ndsrom import patch
 
@@ -271,5 +272,75 @@ def summary_iv_ev(rom):
     rom.replace_overlay(OVL_SUMMARY, bytes(code))
 
 
+OVL_SCRIPT = 10  # the script engine, at 0x02155160
+SCRIPT_TABLE = 0x0217062C
+
+
+def script_command(rom):
+    """Script opcode 0x25E (unused in retail) runs Gunk_ScriptCommand (gunk/code/script.c) instead of its debug
+    handler. Its argument layout is (sub-command u16, value u16)."""
+    code = bytearray(rom.overlay(OVL_SCRIPT))
+    slot = SCRIPT_TABLE + script5.OP_GUNK * 4 - rom.overlay_base(OVL_SCRIPT)
+    patch(code, slot, 'ddf21502', struct.pack('<I', code_syms['Gunk_ScriptCommand'] | 1).hex())
+    rom.replace_overlay(OVL_SCRIPT, bytes(code))
+
+
+def _edit_text(rom, narc_path, fid, edit):
+    """Rewrite one message file: edit(items) changes the [(chars, attribute)] list in place."""
+    archive = rom.file_id(narc_path)
+    narc = Narc(rom.file(archive))
+    items = text5.entries(narc.file(fid))
+    edit(items)
+    narc.resize_file(fid, text5.write(items))
+    rom.replace_file(archive, narc.save())
+
+
+def _edit_script(rom, fid, edit):
+    archive = rom.file_id(script5.SCRIPTS)
+    narc = Narc(rom.file(archive))
+    sf = script5.ScriptFile(narc.file(fid))
+    edit(sf)
+    narc.resize_file(fid, sf.save())
+    rom.replace_file(archive, narc.save())
+
+
+SCRIPT_FIELD_COMMON, TEXT_FIELD_COMMON = 872, 263  # Repel, Sweet Scent, fishing, Entralink
+MSG_REPEL_WORE_OFF, MSG_REPEL_AGAIN = 0, 13
+ITEM_SUPER_REPEL, ITEM_MAX_REPEL, ITEM_REPEL = 76, 77, 79
+VAR_A, VAR_B = 0x8020, 0x8021  # temporary script variables
+
+
+def repel_prompt(rom):
+    """When a Repel wears off and the bag has another, ask to use one (the cheapest the bag has: Repel, then Super,
+    then Max). Script 872 entry 0 is the wore-off message; it now starts at new code appended to the file, which
+    falls back to the retail message when the bag has none."""
+    def text(items):
+        assert text5.to_str(items[MSG_REPEL_WORE_OFF][0]) == "Repel's effect wore off..." and len(items) == MSG_REPEL_AGAIN
+        items.append((text5.chars("Repel's effect wore off...\nUse another Repel?"), items[MSG_REPEL_WORE_OFF][1]))
+    _edit_text(rom, 'a/0/0/3', TEXT_FIELD_COMMON, text)
+
+    S = script5
+
+    def script(sf):
+        retail = S.entries(sf.data)[0]
+        assert sf.data[retail:retail + 8] == bytes.fromhex('2e00340000000200')  # lock; message 0, plain
+        program = [(S.OP_LOCK,)]
+        for item, label in ((ITEM_REPEL, 'repel'), (ITEM_SUPER_REPEL, 'super'), (ITEM_MAX_REPEL, 'max')):
+            program += [(S.OP_CHECK_ITEM, item, 1, VAR_A), (S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, 0),
+                        (S.OP_COMPARE, 1), (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', label))]
+        program += [(S.OP_JUMP, ('to', retail + 2))]  # none: the retail message
+        for item, label in ((ITEM_REPEL, 'repel'), (ITEM_SUPER_REPEL, 'super'), (ITEM_MAX_REPEL, 'max')):
+            program += [label, (S.OP_SET_VAR, VAR_B, item), (S.OP_JUMP, ('label', 'ask'))]
+        program += ['ask', (S.OP_MESSAGE, MSG_REPEL_AGAIN, 2), (S.OP_YES_NO, VAR_A),
+                    (S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, 1), (S.OP_COMPARE, 1),
+                    (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', 'yes')),  # YES is 0
+                    (S.OP_CLOSE,), (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,),
+                    'yes', (S.OP_TAKE_ITEM, VAR_B, 1, VAR_A), (S.OP_GUNK, 0, VAR_B),
+                    (S.OP_CLOSE,), (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
+        at = len(sf.data) + len(sf.data) % 2
+        sf.set_entry(0, sf.append(S.assemble(at, program)))
+    _edit_script(rom, SCRIPT_FIELD_COMMON, script)
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home, options_instant, exp_bar_x2, summary_iv_ev]
+           code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt]

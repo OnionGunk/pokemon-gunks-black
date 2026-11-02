@@ -142,6 +142,51 @@ def jump_to(at, offset):
     return struct.pack('<Hi', OP_JUMP, offset - (at + 6))
 
 
+# commands the patches use (opcode, argument layout); 'L' is an s32 jump target given as a label or file offset
+OP_LOCK, OP_RELEASE_A, OP_RELEASE_B, OP_WAIT_A, OP_CLOSE = 0x2E, 0x30, 0x2F, 0x32, 0x36
+OP_MESSAGE = 0x34          # (msg u16, type u16): a line from the script's text file, type 2 = plain field text
+OP_SET_VAR = 0x28          # (var u16, value u16)
+OP_PUSH_VAR, OP_PUSH_VALUE, OP_COMPARE = 0x09, 0x08, 0x11
+IF_DIFFERENT = 0xFF  # push var, push value, compare 1, If 0xFF: jumps when they differ (checked in the game)
+OP_YES_NO = 0x47           # (var u16): 0 = YES
+OP_TAKE_ITEM, OP_CHECK_ITEM = 0xB6, 0xB8  # (item u16, count u16, result var u16); check: 1 = have that many
+OP_GUNK = 0x25E            # (sub u16, value u16): gunk/code/script.c
+
+
+def assemble(at, program):
+    """Bytes for `program` placed at file offset `at`. Items: (opcode, *args) with args as ints (u16), ('u8', n),
+    ('label', name) or an int file offset tagged ('to', n) for s32 jump targets; a bare string defines a label."""
+    def walk(labels):
+        out = bytearray()
+        for item in program:
+            if isinstance(item, str):
+                labels[item] = at + len(out)
+                continue
+            op, *args = item
+            out += struct.pack('<H', op)
+            for a in args:
+                if isinstance(a, tuple) and a[0] == 'u8':
+                    out += struct.pack('<B', a[1])
+                elif isinstance(a, tuple):
+                    dest = labels.get(a[1], 0) if a[0] == 'label' else a[1]
+                    out += struct.pack('<i', 0)
+                    fixups.append((len(out) - 4, dest, a))
+                else:
+                    out += struct.pack('<H', a)
+        return out
+
+    labels = {}
+    fixups = []
+    walk(labels)  # first pass: label positions
+    fixups.clear()
+    out = walk(labels)
+    for pos, _, a in fixups:
+        dest = labels[a[1]] if a[0] == 'label' else a[1]
+        # targets are relative to the end of the command; every jump argument ends its command here
+        struct.pack_into('<i', out, pos, dest - (at + pos + 4))
+    return bytes(out)
+
+
 def main():
     rom = Rom(open(sys.argv[1], 'rb').read())
     if sys.argv[2] == 'dis':

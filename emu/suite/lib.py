@@ -156,6 +156,37 @@ def footer(data, half, i):
     return bytes(data[base:base + 0x10])
 
 
+POSITION = 28  # the situation block: the current zone at +0x80, x / height / z (16.16, tile centres) at +0x84/+0x88/+0x8C
+OBJECTS = 41  # saved field objects; the player is the first: home tile at +0x20/+0x24, tile at +0x26/+0x2A
+
+
+def set_block(data, half, i, new):
+    """Replace block i in one flash half and update its CRC, its copy in the table block and the table's CRC."""
+    base = half * HALF
+    off, length, chk, tab = BLOCKS[i]
+    assert len(new) == length
+    data[base + off:base + off + length] = new
+    crc = crc16_ccitt(new)
+    struct.pack_into('<H', data, base + chk, crc)
+    struct.pack_into('<H', data, base + tab, crc)
+    toff, tlen, tchk, _ = BLOCKS[TABLE]
+    struct.pack_into('<H', data, base + tchk, crc16_ccitt(data[base + toff:base + toff + tlen]))
+
+
+def warp_save(data, zone, x, z):
+    """A test warp: the save continues at tile (x, z) of zone (global tile coordinates, as in the zone's event
+    file a/1/2/5). Edits both halves of a .SaveRAM image (bytearray) in place."""
+    for half in (0, 1):
+        b = bytearray(block(data, half, POSITION))
+        struct.pack_into('<H', b, 0x80, zone)
+        struct.pack_into('<iii', b, 0x84, (x << 16) | 0x8000, 0, (z << 16) | 0x8000)
+        set_block(data, half, POSITION, bytes(b))
+        o = bytearray(block(data, half, OBJECTS))
+        struct.pack_into('<HxxH', o, 0x20, x, z)
+        struct.pack_into('<HxxH', o, 0x26, x, z)
+        set_block(data, half, OBJECTS, bytes(o))
+
+
 # --- emulator --------------------------------------------------------------------------------
 
 class Game:
