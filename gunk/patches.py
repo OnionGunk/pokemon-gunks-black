@@ -7,6 +7,7 @@ assembles to the same bytes as retail.
 import struct
 
 from narc import Narc
+import text5
 from ndsrom import patch
 
 # --- identity ------------------------------------------------------------------------------------------------------
@@ -149,6 +150,7 @@ def text_fast_default(rom):
     rom.replace_arm9(bytes(code))
 
 
+OPTIONS_MSG, OPTIONS_MSG_FAST, OPTIONS_MSG_INSTANT, OPTIONS_MSG_SPEED_HELP = 29, 12, 19, 25
 TEXT_WAITS = 0x0209DFB0  # s8[5] + padding: frames per character, or characters per frame when negative
 INSTANT_WAIT = -127
 
@@ -171,6 +173,17 @@ def text_instant(rom):
     patch(code, a(0x0201305E), '002804d0012804d0022804d004e0042002e0002000e00120',
           '032803d2013802d5042000e00520' + 'c046' * 5)
     rom.replace_arm9(bytes(code))
+
+    # Options text (a/0/0/2 #29): "INSTANT" in an unused empty string, and the text-speed help line
+    fid = rom.file_id('a/0/0/2')
+    narc = Narc(rom.file(fid))
+    items = text5.entries(narc.file(OPTIONS_MSG))
+    assert text5.to_str(items[OPTIONS_MSG_FAST][0]) == 'FAST' and items[OPTIONS_MSG_INSTANT][0] == []
+    items[OPTIONS_MSG_INSTANT] = (text5.chars('INSTANT'), items[OPTIONS_MSG_FAST][1])
+    items[OPTIONS_MSG_SPEED_HELP] = (text5.chars('Choose a text speed. Tap FAST again\nto switch to INSTANT.'),
+                                     items[OPTIONS_MSG_SPEED_HELP][1])
+    narc.resize_file(OPTIONS_MSG, text5.write(items))
+    rom.replace_file(fid, narc.save())
 
 
 # --- code home --------------------------------------------------------------------------------------------------
@@ -196,5 +209,35 @@ def code_home(rom):
     code_syms.update(syms)
 
 
+OVL_OPTIONS = 68  # the Options menu, at 0x021B95A0
+
+
+def thumb_bl(src, dst):
+    """A Thumb BL at src to dst, as hex bytes."""
+    off = (dst & ~1) - (src + 4)
+    assert -0x400000 <= off < 0x400000, 'BL out of range'
+    h1 = 0xF000 | (off >> 12) & 0x7FF
+    h2 = 0xF800 | (off >> 1) & 0x7FF
+    return struct.pack('<HH', h1, h2).hex()
+
+
+def thumb_jump(dst):
+    """8 bytes replacing a whole Thumb function (at a 4-aligned address): ldr r3, [pc, #0]; bx r3; .word dst."""
+    return '004b1847' + struct.pack('<I', dst | 1).hex()
+
+
+def options_instant(rom):
+    """Pick INSTANT in Options: tap FAST while it's on (gunk/code/options.c). Replaces the menu's tap handler and its
+    is-selected test, and wraps its label setup and the D-pad's store call so the button can read INSTANT."""
+    code = bytearray(rom.overlay(OVL_OPTIONS))
+    base = rom.overlay_base(OVL_OPTIONS)
+    sym = code_syms
+    patch(code, 0x021BAFD8 - base, '10b518220b1c5343', thumb_jump(sym['Gunk_Options_Tap']))
+    patch(code, 0x021BB0AC - base, '18224a4305498958', thumb_jump(sym['Gunk_Options_IsSelected']))
+    patch(code, 0x021B9B54 - base, '00f056f8', thumb_bl(0x021B9B54, sym['Gunk_Options_InitLabels']))
+    patch(code, 0x021BB08E - base, 'fff78bff', thumb_bl(0x021BB08E, sym['Gunk_Options_StoreKey']))
+    rom.replace_overlay(OVL_OPTIONS, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home]
+           code_home, options_instant]

@@ -46,4 +46,6 @@ def build():
         parts = line.split()
         if len(parts) == 3:
             syms[parts[2]] = int(parts[0], 16)
-    return blob, syms['__bss_end'] - syms['__bss_start'], syms
+    bss = syms['__bss_end'] - syms['__bss_start']
+    open(os.path.join(OUT, 'gunk.bss'), 'w').write(f'{bss}\n')  # for the suite's code-home check
+    return blob, bss, syms

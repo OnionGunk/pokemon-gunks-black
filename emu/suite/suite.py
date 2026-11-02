@@ -133,12 +133,13 @@ CODE_HOME, CODE_HOME_END = 0x023C0000, 0x023E0000  # see gunk/patches.py code_ho
 
 
 def check_code_home(g):
-    """The code home must still hold exactly the compiled code, then zeros up to 0x023E0000: anything else means
-    something in the game wrote over it (a heap or the OS arena reaching into it)."""
+    """The code home must still hold exactly the compiled code, then its variables (.bss), then zeros up to
+    0x023E0000: anything else means something in the game wrote over it (a heap or the OS arena reaching into it)."""
     blob = open(os.path.join(ROOT, 'build', 'code', 'gunk.bin'), 'rb').read()
+    bss = int(open(os.path.join(ROOT, 'build', 'code', 'gunk.bss')).read())
     ram = g.dump(CODE_HOME, CODE_HOME_END - CODE_HOME, os.path.join(OUT, '_home.bin'))
     check(ram[:len(blob)] == blob, 'code home: the code at 0x023C0000 was overwritten')
-    dirty = [CODE_HOME + i for i in range(len(blob), len(ram), 4) if ram[i:i + 4] != bytes(4)]
+    dirty = [CODE_HOME + i for i in range(len(blob) + bss, len(ram), 4) if ram[i:i + 4] != bytes(4)]
     check(not dirty, f'code home: {len(dirty)} non-zero words after the code, first at {dirty[:1] and hex(dirty[0])}')
 
 

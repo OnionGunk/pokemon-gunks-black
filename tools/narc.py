@@ -31,5 +31,24 @@ class Narc:
         assert len(new) == e - s, f'file {i}: size {len(new)} != {e - s}'
         self.data[s:e] = new
 
+    def resize_file(self, i, new):
+        """Replace file i with data of any size: the files after it shift (keeping 4-byte alignment, padded with
+        0xFF) and the FAT, GMIF and archive sizes follow."""
+        s, e = self.range(i)
+        new = bytes(new)
+        old_span = (e - s + 3) & ~3
+        span = new + b'\xFF' * (-len(new) % 4)
+        delta = len(span) - old_span
+        self.data[s:s + old_span] = span
+        for j in range(self.count):
+            fs, fe = struct.unpack_from('<II', self.data, self.fat + j * 8)
+            if j == i:
+                struct.pack_into('<II', self.data, self.fat + j * 8, fs, fs + len(new))
+            elif fs >= e - self.img:
+                struct.pack_into('<II', self.data, self.fat + j * 8, fs + delta, fe + delta)
+        gmif = self.img - 8
+        struct.pack_into('<I', self.data, gmif + 4, struct.unpack_from('<I', self.data, gmif + 4)[0] + delta)
+        struct.pack_into('<I', self.data, 8, len(self.data))
+
     def save(self):
         return bytes(self.data)

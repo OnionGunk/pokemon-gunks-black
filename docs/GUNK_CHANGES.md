@@ -53,7 +53,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **FAST default done** (`text_fast_default`): a new game's options word is 0x0202 (retail 0x0201). **INSTANT engine done** (`text_instant`): text speed 3 prints 127 characters per frame through a new wait-table entry (details in plan step 3); checked by setting the option to 3 in RAM, where the gift-box line appears whole within 8 frames while FAST is mid-word. **Still to do: a way to pick it in Options.** The text-speed row is three 48-px touch-button sprites (overlay 68, table at 0x021BB704) with their own animations; a fourth needs new sprite graphics, or FAST could switch to INSTANT when tapped again. | FAST ✅, INSTANT 🟡 |
+| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **Done.** FAST default (`text_fast_default`): a new game's options word is 0x0202 (retail 0x0201). INSTANT (`text_instant`, `options_instant`): text speed 3 prints 127 characters per frame through a new wait-table entry (plan step 3). In Options, tapping FAST while it's on switches to INSTANT: the button relabels to INSTANT (a new string in message file 29) and stays lit, and the help line says so; tapping again goes back to FAST. The D-pad still moves among SLOW, MID and FAST (Left from INSTANT goes to MID and the label turns back). Code: `gunk/code/options.c` (replaces the menu's tap handler and selected test, wraps its label setup and D-pad store). Checked in the game: the taps (2→3→2→3), D-pad Left/Right, CONFIRM keeping 3, the gift-box line appearing whole within 8 frames, and battle lines that close by themselves ("Go! Tepig!", "Bianca sent out Snivy!") showing whole with no lost letters (the Platinum INSTANT bug doesn't apply: the game's own printer copies the window every frame). | ✅ |
 | 18 | EXP bar twice as fast (c0644cff) | port | Battle gauge code in the battle overlays. Constant or small code patch. | ⏳ |
 | 19 | HP bars one pixel per frame (566793ec) | port | Same gauge code as #18. | ⏳ |
 | 20 | Auto-run, hold B to walk (c0644cff) | port | **Done** (`auto_run`). Black has no run toggle (hold B only; B2W2 doesn't add one either). Three branches in the field overlay flip: the grid-map step picker `FUN_overlay_d_21__021a4dc0` (Running Shoes flag 0x963 and B held → run 0x58, else walk 0x0C), the turn-in-place skip before it, and the rail-map picker `021a5edc`. Without the Running Shoes nothing changes. Checked in the game: with the shoes flag set, no B runs two tiles in the time B walks one. | ✅ |
@@ -123,9 +123,11 @@ before the next.
 3. **Text and bars (#17-19):** text speed reaches the printers through a signed wait table at 0x0209DFB0
    ({3, 1, -2, -4, 6}: frames per character, or characters per frame when negative) via three mappers
    (`FUN_02012ffc` option as index, `FUN_02013020` option + 1, `FUN_02013050` 0,1,2 -> 4,0,1), clamped by
-   `FUN_02013080`. INSTANT uses the padding byte at index 5 (-127); every mapper sends option 3 there. No new code
-   was needed. Next: the Options UI for it (see #17), then the EXP bar ×2 and HP bars 1 px/frame, which need a
-   battle state for tracing.
+   `FUN_02013080`. INSTANT uses the padding byte at index 5 (-127); every mapper sends option 3 there. The Options
+   UI is in `gunk/code/options.c` (see #17). Next: the EXP bar ×2 and HP bars 1 px/frame. A battle state now
+   exists (the bedroom battle with Bianca, `emu/suite/out/_bt_movelist.state`, made by scripted A presses from the
+   start state); a first RAM-diff search for the HP readout found nothing, as the turn order varies between runs.
+   Message files: `tools/text5.py` reads and writes them (round-trips retail except the 2 pad bytes).
 4. **Auto-run (#20): done.** The keys come from GFL's key struct (update `FUN_02035F38`, getters `FUN_020362DC`
    trigger and `FUN_0203630C` held). The grid-map player controller is `FUN_overlay_d_21__021a41b0`, called each frame
    with (trigger, held, flags), where flag bit 0 is "has the Running Shoes" (event flag 0x963, checked by
