@@ -23,10 +23,11 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **Move Tutor in every Pokémon Center:** the Move Deleter and the move reminder, who now works for free.
 - **HM moves without teaching them** (in, not yet seen in the game): a Pokémon that could learn an HM you
   own can use it in the field.
-- **DexNav (first version):** press R in tall grass to meet a Pokémon of that route you haven't caught yet.
+- **DexNav:** press R in tall grass to meet a Pokémon of that route, starting with one you haven't caught; L+R
+  switches to the next. Searching for the same one again builds a chain for better IVs and shiny odds.
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
 
-Planned: the rest of DexNav (picking a target, chains and search levels) and follower Pokémon.
+Planned: follower Pokémon.
 
 ## Play it
 

@@ -115,7 +115,7 @@ def trade_evolutions(rom):
     rom.replace_file(fid, itemdata.save())
 
 
-OVL_ITEM_USE = 91  # party-menu item use
+OVL_ITEM_USE = 91  # the party menu and its item use, at 0x021B6240
 
 
 def _thumb_imm_patch(code, base, lo, hi, old, new, count):
@@ -492,6 +492,9 @@ def exp_all(rom):
     rom.replace_overlay(OVL_BATTLE, bytes(code))
 
 
+OVL_PARTY = OVL_ITEM_USE  # the party menu (the same overlay as its item use)
+
+
 def field_moves(rom):
     """HM moves without the move (gunk/code/fieldmove.c): FUN_overlay_d_10__0215b500, the "does this Pokémon know
     this move" test behind the field-move script commands (0x116 and its sibling) and the field's own check, now
@@ -501,6 +504,20 @@ def field_moves(rom):
     base = rom.overlay_base(OVL_SCRIPT)
     patch(code, 0x0215B500 - base, '70b50c1c4c210022', thumb_jump(code_syms['Gunk_KnowsFieldMove']))
     rom.replace_overlay(OVL_SCRIPT, bytes(code))
+
+    # party menu (overlay 91): field-move entries are 0x10 + move slot; slots 6-11 (entries 0x16-0x1B) now stand for
+    # HM01-06 (entries 0x14 and 0x15 are other actions)
+    code = bytearray(rom.overlay(OVL_PARTY))
+    base = rom.overlay_base(OVL_PARTY)
+    for site in (0x021B9616, 0x021BBC74):  # bl the slot -> field skill mapper -> Gunk_PartyFieldSkill
+        patch(code, site - base, thumb_bl(site, 0x021B99E4), thumb_bl(site, code_syms['Gunk_PartyFieldSkill']))
+    patch(code, 0x021BBC94 - base, '042d', '0c2d')  # the menu builds entries for slots 0-11 (was 0-3)
+    patch(code, 0x021BBD5A - base, '1328', '1b28')  # field-move entries are 0x10-0x1B (colour)
+    patch(code, 0x021BBDA0 - base, '132a', '1b2a')  # and (label), named by Gunk_PartyEntryMove
+    patch(code, 0x021B9190 - base, 'cde2', 'fbe1')  # selecting an entry past 0x15 takes the field-move path
+    label = thumb_bl(0x021BBDAC, code_syms['Gunk_PartyEntryMove'])
+    patch(code, 0x021BBDAC - base, thumb_bl(0x021BBDAC, 0x02017E1C), label)
+    rom.replace_overlay(OVL_PARTY, bytes(code))
 
 
 POKEMON_CENTERS = [1, 8, 20, 41, 65, 99, 109, 115, 122, 146, 398, 407, 413, 425]  # zones (nurse: script 2100)
@@ -554,10 +571,12 @@ def move_tutor(rom):
 
 
 def dexnav(rom):
-    """DexNav, first version (gunk/code/dexnav.c): R in tall grass meets a Pokémon of this route you haven't
-    caught yet (then the next, in turn), from its own grass slot. Hooks in the field overlay: the per-frame
+    """DexNav (gunk/code/dexnav.c): R in tall grass meets the chosen Pokémon of this route (first the first you
+    haven't caught; L+R switches), from its own grass slot, and repeated searches build a chain for shiny odds and
+    perfect IVs. Hooks in the field overlay: the per-frame
     input routine in its table at 0x021D8900, the per-frame step-encounter check (FUN_overlay_d_21__0218b208,
-    called twice), and the encounter's slot pick (FUN_overlay_d_21__021a954c, called at 0x021AA048)."""
+    called twice), the encounter's slot pick (FUN_overlay_d_21__021a954c, called at 0x021AA048), its personality
+    roll and its building of the wild Pokémon."""
     code = bytearray(rom.overlay(OVL_FIELD))
     base = rom.overlay_base(OVL_FIELD)
     patch(code, 0x021D8900 - base, 'f12d1a02', struct.pack('<I', code_syms['Gunk_FieldInput'] | 1).hex())
@@ -565,6 +584,9 @@ def dexnav(rom):
         patch(code, site - base, thumb_bl(site, 0x0218B208), thumb_bl(site, code_syms['Gunk_StepEncount']))
     pick = thumb_bl(0x021AA048, code_syms['Gunk_DexNav_PickSlots'])
     patch(code, 0x021AA048 - base, thumb_bl(0x021AA048, 0x021A954C), pick)  # bl the slot pick -> the wrapper
+    for site, retail, sym in ((0x021A96D4, 0x021A9D30, 'Gunk_DexNav_Pid'),  # chains: shiny odds
+                              (0x021AA4D8, 0x021A96B8, 'Gunk_DexNav_Create')):  # and perfect IVs
+        patch(code, site - base, thumb_bl(site, retail), thumb_bl(site, code_syms[sym]))
     rom.replace_overlay(OVL_FIELD, bytes(code))
 
 
