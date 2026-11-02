@@ -503,6 +503,56 @@ def field_moves(rom):
     rom.replace_overlay(OVL_SCRIPT, bytes(code))
 
 
+POKEMON_CENTERS = [1, 8, 20, 41, 65, 99, 109, 115, 122, 146, 398, 407, 413, 425]  # zones (nurse: script 2100)
+SCRIPT_MOVE_TUTORS, TEXT_MOVE_TUTORS = 859, 347  # the Move Deleter (entry 0 = script 2260) and reminder (2261)
+SCRIPT_DELETER, SCRIPT_REMINDER = 2260, 2261
+SPRITE_DELETER, SPRITE_REMINDER = 28, 14
+TUTOR_TILES = [(6, 13), (6, 15)]  # beside the path to the counter; free in every Center (they share one layout)
+
+
+def move_tutor(rom):
+    """The Move Deleter and the move reminder stand in every Pokémon Center, and the reminder works for free (no
+    Heart Scale). Their scripts are common (script file 859, IDs 2260 and 2261), so each Center's event file
+    (a/1/2/5) just gets two more NPCs. The reminder's Heart Scale check and payment (script 859) become
+    `set var = 1` (the same length, padded with a no-op), and her lines lose the Heart Scale."""
+    def text(texts):
+        intro = texts[31][0]
+        old = text5.chars("If you bring me a Heart Scale, I'll make") + [0xFFFE] + text5.chars('a Pokémon remember a move.')
+        at = next(i for i in range(len(intro)) if intro[i:i + len(old)] == old)
+        texts[31] = (intro[:at] + text5.chars("I'll do it for free, as often") + [0xFFFE] + text5.chars('as you like.')
+                     + intro[at + len(old):], texts[31][1])
+        paid = texts[29][0]
+        texts[29] = (paid[:paid.index(ord(' '))] + text5.chars(' thanked the reminder girl.'), texts[29][1])
+        texts[34] = (text5.chars('If any of your Pokémon needs to') + [0xFFFE] + text5.chars('remember a move, just ask me!'),
+                     texts[34][1])
+    _edit_text(rom, 'a/0/0/3', TEXT_MOVE_TUTORS, text)
+
+    def script(sf):
+        for at, var in ((0x29C, 0x802C), (0x453, 0x8033)):  # check / take one Heart Scale (item 93)
+            old = struct.pack('<4H', script5.OP_CHECK_ITEM if at == 0x29C else script5.OP_TAKE_ITEM, 93, 1, var)
+            assert bytes(sf.data[at:at + 8]) == old
+            sf.data[at:at + 8] = struct.pack('<3HH', script5.OP_SET_VAR, var, 1, 0)  # set var = 1; no-op
+    _edit_script(rom, SCRIPT_MOVE_TUTORS, script)
+
+    archive = rom.file_id('a/1/2/5')
+    events = Narc(rom.file(archive))
+    for zone in POKEMON_CENTERS:
+        d = bytearray(events.file(zone))
+        furniture, npcs = d[4], d[5]
+        end = 8 + furniture * 20 + npcs * 36
+        assert any(struct.unpack_from('<18H', d, 8 + furniture * 20 + k * 36)[5] == 2100 for k in range(npcs))
+        new = b''
+        for n, (sprite, scr, (x, y)) in enumerate(((SPRITE_DELETER, SCRIPT_DELETER, TUTOR_TILES[0]),
+                                                  (SPRITE_REMINDER, SCRIPT_REMINDER, TUTOR_TILES[1]))):
+            # id, sprite, movement (0: stands still), type, flag, script, facing (3: right, into the room), ..., x, y
+            new += struct.pack('<18H', npcs + n, sprite, 0, 0, 0, scr, 3, 0, 0, 0, 0, 0, 0, 0, x, y, 0, 0)
+        d[end:end] = new
+        d[5] = npcs + 2
+        struct.pack_into('<I', d, 0, struct.unpack_from('<I', d, 0)[0] + len(new))
+        events.resize_file(zone, bytes(d))
+    rom.replace_file(archive, events.save())
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
-           endless_repel, exp_all, field_moves]
+           endless_repel, exp_all, field_moves, move_tutor]

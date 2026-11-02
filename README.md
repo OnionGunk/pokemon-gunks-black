@@ -20,9 +20,12 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **Endless Repel and Exp. All:** key items from Mom (with the Running Shoes); use them to switch them on or
   off. With the Exp. All on, Pokémon that didn't battle get half the EXP, and the EVs.
 - **Repel prompt:** when a Repel wears off and you have another, the game offers to use it.
+- **Move Tutor in every Pokémon Center:** the Move Deleter and the move reminder, who now works for free.
+- **HM moves without teaching them** (in, not yet seen in the game): a Pokémon that could learn an HM you
+  own can use it in the field.
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
 
-Planned: HM moves without teaching them, a Move Tutor in every Pokémon Center, DexNav and follower Pokémon.
+Planned: DexNav and follower Pokémon.
 
 ## Play it
 
