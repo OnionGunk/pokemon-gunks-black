@@ -77,7 +77,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 36 | `gHeapAllocFails` counter (9c1ccbc6) | port | Needs new code (a counter bumped on Black's GFL heap allocation-failure path), so it comes with the first code port. Until then the suite checks for hangs and crashes. | ⏳ |
+| 36 | `gHeapAllocFails` counter (9c1ccbc6) | skip | **Not needed in Black.** GFL's allocator (`FUN_02030734`) sends a failed allocation to a debug print and then `FUN_02088234`, the OS terminate path every fatal error uses, so the game stops. The suite already fails any test whose frame counter stops. (In Platinum a failed allocation returned NULL and carried on, which is why it needed a counter.) | — |
 | 37 | Test builds: start points, warp anywhere | adapt | Later, with new code. | ⏳ |
 | 38 | BizHawk harness and save suite | adapt | `emu/` (from `hg-tools/emu`) on Black's own BizHawk copy (`C:\Projectsizhawk-black\EmuHawkBlack.exe`, renamed so other harnesses' `taskkill /IM EmuHawk.exe` can't hit it). `emu/suite/suite.py` checks Black's save format. | ✅ |
 
