@@ -125,3 +125,21 @@ before the next.
 
 `emu/suite`, Black's own BizHawk (melonDS core), minimized. Both builds start from the real intro (title, Juniper,
 name, bedroom); there are no test hooks in the ROM.
+
+| Test | vanilla (= retail) | Gunk's Black at 34e21de |
+|---|---|---|
+| save_cycles (3 saves at different spots, each followed by a power cycle, Continue and a re-save: counter +1, same position, party, bag, boxes) | pass | pass |
+| crash_after_save (emulator killed after the save, no flush) | pass | pass |
+| torn_save (crash at 10 points during a save) | pass | pass |
+| backup_recovery (each flash half damaged in turn) | pass | pass |
+
+How a torn save behaves (identical in both builds): Black writes the main half first (from about +280 frames
+after the confirming A, block by block, with the checksum table last at about +330), then the backup half (about
++350 to +410). A cut anywhere leaves at most one half torn. The game loads the other half, so you continue from the
+previous save (cut before about +330) or the new one (cut after). The next save rewrites both halves.
+
+The first Gunk's build hung on a white screen entering the field. Overlay 21 had been moved past the DSi region,
+which a DS-mode cart can't read. Fixed in 34e21de; see TOOLCHAIN.md.
+
+Not yet exercised in the emulator: egg hatching speed, trade-evolution levels and items, and vitamins past 100
+(plan step 1). The DS menu banner text hasn't been checked on a DS menu either.

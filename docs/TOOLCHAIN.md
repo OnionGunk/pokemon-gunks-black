@@ -21,8 +21,12 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
    checks the retail bytes it replaces (`ndsrom.patch(..., old, new)`), so a wrong base ROM or a bad address fails
    the build instead of producing a broken ROM. `--vanilla` runs the same pipeline with no patches and must
    reproduce the base ROM byte for byte; it does.
-2. **No layout churn.** `tools/ndsrom.py` edits the ROM in place. A grown file moves to the unused 60 MB after the
-   DSi (TWL) region, and nothing else moves. Compressed overlays that we patch are stored uncompressed.
+2. **No layout churn.** `tools/ndsrom.py` edits the ROM in place. A grown file moves into the DSi digest tables
+   (0xBFD9C00-0xC3B8C78, ~3.8 MB), which DS mode never reads, and nothing else moves. Compressed overlays that we
+   patch are stored uncompressed. The 60 MB after the DSi region looks free but can't be used: a DSi-enhanced cart
+   in DS mode doesn't serve reads from 0xC403000 onward, and melonDS emulates that. The first build put overlay 21
+   there and hung on a white screen. If the 3.8 MB runs out, recompress the patched overlays (BLZ) before going
+   further.
 3. **Save safety.** Nothing here touches the save code unless a patch does it on purpose. The save layout is
    documented in `GUNK_CHANGES.md` (from PKHeX's `SaveBlockAccessor5BW`).
 4. **Upgrade path.** If pokeblack becomes shiftable and largely decompiled, the patches are small and documented
