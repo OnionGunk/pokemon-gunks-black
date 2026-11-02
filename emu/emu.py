@@ -16,16 +16,16 @@ import time
 DIR = os.path.dirname(os.path.abspath(__file__))
 CMD = os.path.join(DIR, "cmd.txt")
 DONE = os.path.join(DIR, "done.txt")
-# Black's own BizHawk copy, so its runs never touch the BizHawk that the Platinum and HeartGold harnesses share
-# (C:\projects\pokemon-platinum-dexnav\bizhawk): stop only kills processes started from this folder
-EMUHAWK = r"C:\Projects\bizhawk-black\EmuHawk.exe"
+# Black's own BizHawk copy, renamed so the other harnesses' "taskkill /IM EmuHawk.exe" can't hit it
+# (they share C:\projects\pokemon-platinum-dexnav\bizhawk). stop only kills processes from this folder.
+EMUHAWK = r"C:\Projects\bizhawk-black\EmuHawkBlack.exe"
 
 
 def our_pids():
     """PIDs of EmuHawk processes running from this harness's BizHawk folder (other copies are left alone)."""
     folder = os.path.dirname(EMUHAWK).lower() + os.sep
     out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                          "Get-Process EmuHawk -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Id)|$($_.Path)\" }"],
+                          "Get-Process EmuHawkBlack -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Id)|$($_.Path)\" }"],
                          capture_output=True, text=True).stdout
     return [int(pid) for pid, _, path in (l.partition("|") for l in out.splitlines()) if path.lower().startswith(folder)]
 

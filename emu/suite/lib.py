@@ -25,7 +25,7 @@ ROMS = {
     'vanilla': os.path.join(ROOT, 'build', 'vanilla-black.nds'),
 }
 # BizHawk names the save after its game database entry when it recognises the ROM (vanilla = retail)
-SAVERAM_NAMES = {}
+SAVERAM_NAMES = {'vanilla': 'Pokemon - Black Version (USA, Europe) (NDSi Enhanced)'}
 
 HALF = 0x24000
 # (offset, length, checksum offset, checksum-table offset) per block, from PKHeX

@@ -29,7 +29,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 4 | 21 PC boxes (7713e967) | **adapt: needs your decision** | Black has **24** boxes. 649 species need 22, so 24 gives 2 spare boxes plus 11 slots. 25 doesn't fit in the main save (see "Save budget"). Black's save half is packed solid: 70 blocks from 0x00000 to 0x23F8C, a mirror copy at 0x24000, and extra saves (Battle Videos, C-Gear skin, Musical download, Pokédex skin, Hall of Fame) filling 0x4A000-0x80000. A 25th box could only live outside the main save, e.g. in the 128 KB Musical-download area (Wi-Fi/IR content), with its own two alternating copies and CRCs so a torn save can't lose it, plus the PC app's 24-box limits. That's a large, save-critical change for one box. **Recommendation: keep 24.** | ⏳ ask |
+| 4 | 21 PC boxes (7713e967) | **skip: Black already has enough** | Goal (decided 2026-11-02): a living dex through Gen 5 plus a box or two. Black has **24** boxes (720 slots). The 649 species fill 22 boxes (21 full + 19), which leaves 71 slots: 2 spare boxes plus 11. No save change needed. A 25th box wouldn't fit in the main save anyway (see "Save budget"). The save half is packed solid, with 70 blocks from 0x00000 to 0x23F8C and a mirror copy at 0x24000. | — |
 | 5 | Save table grown for DexNav search levels (5985a222) | adapt | There's no room in the main save (see #4). The slack at the end of each block's 0x100 slot is tens of bytes, which is not enough for 649 levels. Options: store levels only for the last N species searched (fits in slack), or use an extra-save slot with its own double-buffering. Decide with DexNav. | ⏳ |
 | 6 | Static check that the save fits in one flash half | port | A build-time check in `patches.py` that any block we grow still ends before the next block and the checksum table. | ⏳ |
 
@@ -46,7 +46,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Status |
 |---|---|---|---|
-| 11-15 | Following Platinum's followers, interactions, cutscene edits, Surf/bike/door handling, crash fixes | **adapt: very large** | Black has no follower system and no overworld sprites for Pokémon (Gen 5 overworld sprites exist only for a few story Pokémon). It needs 649 sprite sets, a renderer, movement and every cutscene. This is the single largest item. Proposal: last, after everything else, and only if you want it. | ⏳ ask |
+| 11-15 | Following Platinum's followers, interactions, cutscene edits, Surf/bike/door handling, crash fixes | **adapt: very large, wanted** (decided 2026-11-02) | Black has no follower system and almost no Pokémon overworld sprites. Sprites, in this order: **(1)** #1-493 come from HeartGold's own follower sprites, extracted at build time from the user's HeartGold dump (`C:\Projects\hg-baserom`), so the repo and the patch carry no extracted art beyond what the BPS needs. HGSS sprites are 32×32 / 64×64 four-direction walk sheets, the same frame grid as Black's NPCs. **(2)** #494-649: a community Gen 5 follower sprite pack in the HGSS style (the packs made for HGSS-style follower projects and Essentials resources), used only with the artists' permission and credited by name in the README. If a gap remains, flag those species and don't ship placeholders silently. Code: a field-object follower in Black's map-object system, movement that copies the player, Surf/bike/door/warp handling, and cutscene hiding, ported from the Platinum design. It goes after the QoL ports and DexNav, because it touches the most systems. | ⏳ |
 | 16 | Movement-end handler fix (c026a1c9) | skip | Fixes the Platinum follower port's interaction with screen effects. Black has no followers, so the bug can't happen. Revisit only with #11. | — |
 
 ## Quality of life
@@ -64,7 +64,7 @@ in-game · ⏳ planned · — skipped.
 | 25 | Move Tutor in every Pokémon Center (e8f1b80d) | adapt | Black's Move Relearner is in Mistralton City (Heart Scale). Add a free relearner/deleter NPC to the Pokémon Center layout (Black's Centers share a script set). | ⏳ |
 | 26 | Summary: A on Skills cycles stats / IVs / EVs (2957e59d) | port | Black's summary shows no IVs/EVs. New code in the summary overlay. | ⏳ |
 | 27 | Exp. All key item: half EXP and EVs to party members that didn't battle (2957e59d) | port | Black's Exp. Share is the Gen 4 held item (split EXP with the holder). There's no party-wide option, despite what the brief assumed (that arrived in Gen 6). Battle EXP code + a key item toggle. | ⏳ |
-| 28 | Vitamins up to 252 EVs (2957e59d) | port | Black caps vitamins at 100 EVs. Constant in the item-use code. | ⏳ |
+| 28 | Vitamins up to 252 EVs (2957e59d) | port | `vitamins_to_252`: overlay 91's can-use test (`FUN_overlay_d_91__021bdd78`, one "EV < 100" per stat) and its EV calculation (`021be948`, clamp to 100) now use 252. The 510 total and the wings' 255 stay. | 🟡 |
 | 29 | Bag: Start sorts the open pocket (2957e59d) | port | Black lets you drag items around on the touch screen, but has no automatic sort. | ⏳ |
 | 30 | Two registered items: Y and Select (2957e59d) | skip: Black has it | Black registers any number of items to Y; with more than one, Y opens a chooser. | — |
 | 31 | Honey tree timer (2957e59d) | skip | No honey trees in Black. | — |
@@ -79,7 +79,7 @@ in-game · ⏳ planned · — skipped.
 |---|---|---|---|---|
 | 36 | `gHeapAllocFails` counter (9c1ccbc6) | port | Needs new code (a counter bumped on Black's GFL heap allocation-failure path), so it comes with the first code port. Until then the suite checks for hangs and crashes. | ⏳ |
 | 37 | Test builds: start points, warp anywhere | adapt | Later, with new code. | ⏳ |
-| 38 | BizHawk harness and save suite | adapt | `emu/` (from `hg-tools/emu`), Black's save format in `emu/suite/lib.py`. | see results |
+| 38 | BizHawk harness and save suite | adapt | `emu/` (from `hg-tools/emu`) on Black's own BizHawk copy (`C:\Projectsizhawk-black\EmuHawkBlack.exe`, renamed so other harnesses' `taskkill /IM EmuHawk.exe` can't hit it). `emu/suite/suite.py` checks Black's save format. | ✅ |
 
 ## Save budget (Black, from PKHeX `SaveBlockAccessor5BW`)
 
@@ -90,3 +90,38 @@ in-game · ⏳ planned · — skipped.
   The blocks are 0x100-aligned, so the only slack is the tail of each block's 0x100 slot (a few to ~0xF0 bytes).
 - Extra saves (single copy): 0x4A000 battle videos (×4, 0x2000), 0x52000 C-Gear skin, 0x55000 battle test,
   0x56000 Musical download (0x20000), 0x76000 Pokédex skin, 0x7C800/0x7E000 Hall of Fame, 0x7F800/0x7FC00 link.
+
+## Plan for the remaining ports
+
+In order. Each one gets its own local commit, is built, and is run through `emu/suite` (vanilla as the control)
+before the next.
+
+1. **In-game feature tests for the first ports.** Add a second start state after the starter and Bianca's
+   battle, and find the party and bag in RAM through the loaded save buffer. Then test HP Up ×26 to 252 EVs;
+   a Metal Coat on Onix; Kadabra at 36 via EXP; and an egg's cycle counter dropping 2 per 256 steps. These move
+   #28, #33 and #34 from 🟡 to ✅.
+2. **A home for new code.** Measure Black's main-RAM arena and heaps in the emulator: `OS` arena bounds and the
+   GFL heap table, from the code around the main system struct at 0x020AA194. Then reserve a fixed region at
+   boot (lower the arena's top before the heaps are created) and load a code blob there from a new ROM file
+   (`gunk/code.bin`, built by `arm-none-eabi-gcc -mthumb -march=armv5te` from `gunk/src/`, linked at that
+   address). Hooks are written by `patches.py` with the same retail-bytes check. The first user is #36,
+   `gHeapAllocFails` on GFL's allocation-failure path. The suite then also fails on out-of-memory.
+3. **Text and bars (#17-19):** INSTANT text speed in Options (and new games start on FAST); EXP bar ×2; HP bars
+   1 px/frame. Find the text printer's per-frame step and the battle gauge code in the disassembly.
+4. **Auto-run (#20):** invert B for running in the field input code.
+5. **Summary IV/EV view (#26)** and **bag sorting (#29).**
+6. **Field moves without the move (#24)** and the **Move Tutor in every Pokémon Center (#25)**. That needs
+   Black's script format: CTRMap's PokéScript or SwissArmyKnife docs for the event and script NARCs.
+7. **New key items: Endless Repel (#22), Exp. All (#27), the Repel prompt (#21).** Black's item table has 627
+   entries with unused IDs inside it, so new items take free IDs instead of growing the table. Mom gives them in
+   Nuvema. Exp. All needs the battle EXP code.
+8. **DexNav (#7-#10)** on the seasonal encounter tables, with the key-item touch grid. The search-level storage
+   is decided then (see #5).
+9. **Followers (#11-15):** sprites from the user's HeartGold dump for #1-493, a credited Gen 5 pack for
+   #494-649, then the follower object and its movement, Surf, bike, door and cutscene handling.
+10. **Title logo (#3)** and **credits name (#1).**
+
+## Test results (2026-11-02)
+
+`emu/suite`, Black's own BizHawk (melonDS core), minimized. Both builds start from the real intro (title, Juniper,
+name, bedroom); there are no test hooks in the ROM.
