@@ -98,4 +98,30 @@ def trade_evolutions(rom):
     rom.replace_file(fid, itemdata.save())
 
 
-PATCHES = [identity, faster_eggs, trade_evolutions]
+OVL_ITEM_USE = 91  # party-menu item use
+
+
+def _thumb_imm_patch(code, base, lo, hi, old, new, count):
+    """Rewrite every Thumb instruction halfword `old` in [lo, hi) to `new`; there must be exactly `count`."""
+    hits = [a for a in range(lo, hi, 2) if code[a - base:a - base + 2] == old.to_bytes(2, 'little')]
+    assert len(hits) == count, f'{len(hits)} hits for {old:#06x} in {lo:#x}-{hi:#x}, expected {count}'
+    for a in hits:
+        code[a - base:a - base + 2] = new.to_bytes(2, 'little')
+
+
+def vitamins_to_252(rom):
+    """Vitamins work up to 252 EVs in a stat (retail stops at 100); the 510 total and the wings' 255 stay.
+    FUN_overlay_d_91__021bdd78 decides whether an item can be used (one "EV < 100" test per stat, after 0x021BDECA) and
+    FUN_overlay_d_91__021be948 computes the new EV (clamped to 100 for vitamins)."""
+    code = bytearray(rom.overlay(OVL_ITEM_USE))
+    base = rom.overlay_base(OVL_ITEM_USE)
+    for reg in range(8):  # cmp rN, #100 -> #252
+        old = 0x2800 | reg << 8 | 0x64
+        n = {0: 4, 5: 1, 7: 1}.get(reg, 0)
+        _thumb_imm_patch(code, base, 0x021BDECA, 0x021BE2B4, old, old & 0xFF00 | 0xFC, n)
+    _thumb_imm_patch(code, base, 0x021BE948, 0x021BE9BC, 0x2864, 0x28FC, 2)  # cmp r0, #100
+    _thumb_imm_patch(code, base, 0x021BE948, 0x021BE9BC, 0x2064, 0x20FC, 1)  # mov r0, #100
+    rom.replace_overlay(OVL_ITEM_USE, bytes(code))
+
+
+PATCHES = [identity, faster_eggs, trade_evolutions, vitamins_to_252]
