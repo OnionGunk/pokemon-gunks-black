@@ -100,6 +100,25 @@ class Rom:
         e[7] = len(code) & 0xFFFFFF  # compressed flag clear
         struct.pack_into('<8I', self.data, self.ovt_off + n * 32, *e)
 
+    # ARM9 static module -------------------------------------------------------------------------
+    ARM9_RAM = 0x02004000
+    ARM9_MODPARAMS = 0xFB0  # SDK module params (magic 0xDEC00621 at +0x1C), raw in the first 16 KB; +0x14 = compressed static end
+    ARM9_SLOT_END = 0x73A00  # next ROM item after the retail ARM9
+
+    def arm9(self):
+        off, _, _, size = struct.unpack_from('<4I', self.data, 0x20)
+        return bytes(codeCompression.decompress(bytes(self.data[off:off + size])))
+
+    def replace_arm9(self, code):
+        """BLZ-compress the ARM9 again (the secure area and module params stay raw) and fix its sizes."""
+        off = struct.unpack_from('<I', self.data, 0x20)[0]
+        comp = bytearray(codeCompression.compress(code, isArm9=True))
+        assert off + len(comp) <= self.ARM9_SLOT_END, 'ARM9 outgrew its ROM slot'
+        struct.pack_into('<I', comp, self.ARM9_MODPARAMS + 0x14, self.ARM9_RAM + len(comp))
+        self.data[off:self.ARM9_SLOT_END] = b'\xFF' * (self.ARM9_SLOT_END - off)
+        self.data[off:off + len(comp)] = comp
+        struct.pack_into('<I', self.data, 0x2C, len(comp))
+
     # header and banner ---------------------------------------------------------------------
     def set_title(self, title):
         b = title.encode('ascii')

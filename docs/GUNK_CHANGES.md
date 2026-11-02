@@ -53,7 +53,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | Black has SLOW/MID/FAST. Add INSTANT (needs new code: the text printer's per-frame loop). | ⏳ |
+| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **FAST default done** (`text_fast_default`): the options' new-game defaults (`FUN_02008320`, ARM9) set text speed 2 instead of 1. Checked: a new game's options word is 0x0202 (retail 0x0201), and the suite passes. INSTANT still needs new code (the text printer's per-frame loop) and a fourth choice on the Options row. | FAST ✅, INSTANT ⏳ |
 | 18 | EXP bar twice as fast (c0644cff) | port | Battle gauge code in the battle overlays. Constant or small code patch. | ⏳ |
 | 19 | HP bars one pixel per frame (566793ec) | port | Same gauge code as #18. | ⏳ |
 | 20 | Auto-run, hold B to walk (c0644cff) | port | Black has **no** run toggle (it's hold B only; B2W2 doesn't add one either). Field input patch: invert B for running (only where running is allowed already). | ⏳ |

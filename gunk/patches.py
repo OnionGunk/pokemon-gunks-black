@@ -123,5 +123,16 @@ def vitamins_to_252(rom):
     _thumb_imm_patch(code, base, 0x021BE948, 0x021BE9BC, 0x2064, 0x20FC, 1)  # mov r0, #100
     rom.replace_overlay(OVL_ITEM_USE, bytes(code))
 
+ARM9 = 0x02004000
 
-PATCHES = [identity, faster_eggs, trade_evolutions, vitamins_to_252]
+
+def text_fast_default(rom):
+    """New games start on FAST text instead of MID. FUN_02008320 (the options' new-game defaults) sets text
+    speed, the low 4 bits of the options u16, with `mov r0, #1; orr r1, r0`, and reuses that r0 = 1 for the next
+    field (`lsl r0, r0, #9`). So: `add r1, #2` (the bits were just cleared), then `mov r0, #1`."""
+    code = bytearray(rom.arm9())
+    patch(code, 0x02008332 - ARM9, '01200143', '02310120')
+    rom.replace_arm9(bytes(code))
+
+
+PATCHES = [identity, faster_eggs, trade_evolutions, vitamins_to_252, text_fast_default]

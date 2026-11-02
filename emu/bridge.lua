@@ -240,6 +240,19 @@ while true do
                         f3:write(table.concat(row, " "), "\n")
                         f3:close()
                     end, tonumber(a[2]), "trace" .. a[2], D)
+                elseif op == "watchwrite" then
+                    -- watchwrite <addr> <path>: every ARM9 write to <addr>, append frame, pc, lr and r0-r3
+                    local path = a[3]
+                    event.onmemorywrite(function()
+                        local r = emu.getregisters()
+                        local row = { emu.framecount() }
+                        for _, k in ipairs({ "r15", "r14", "r0", "r1", "r2", "r3" }) do
+                            row[#row + 1] = string.format("%08X", (r["ARM9 " .. k] or 0) & 0xFFFFFFFF)
+                        end
+                        local f3 = io.open(path, "a")
+                        f3:write(table.concat(row, " "), "\n")
+                        f3:close()
+                    end, tonumber(a[2]), "watch" .. a[2], "ARM9 System Bus")
                 elseif op == "write16" then
                     -- write16 <domain> <addr> <value>
                     memory.write_u16_le(tonumber(a[3]), tonumber(a[4]), a[2])
