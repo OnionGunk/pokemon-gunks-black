@@ -44,6 +44,7 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
 - `build.py`: entry point. `baserom.txt` (gitignored) holds the base ROM path.
 - `tools/ndsrom.py`: ROM file table, overlays (BLZ via ndspy), header and banner with CRCs.
 - `tools/narc.py`: same-size edits inside NARCs, keeping every other byte.
+- `tools/patch/bps.py`: BPS patches (from the Platinum hack); `build.py` makes `build/gunk-black.bps` and checks it reproduces the ROM.
 - `gunk/patches.py`: the hack, one function per change.
 - `emu/`: BizHawk harness (from the Platinum and HeartGold hacks) and `emu/suite/` save tests.
 - Python: `.venv` (Python 3.13 + `ndspy`). Create it with `py -3.13 -m venv .venv && .venv/Scripts/python -m pip install ndspy`.

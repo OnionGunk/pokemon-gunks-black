@@ -16,7 +16,28 @@ import time
 DIR = os.path.dirname(os.path.abspath(__file__))
 CMD = os.path.join(DIR, "cmd.txt")
 DONE = os.path.join(DIR, "done.txt")
-EMUHAWK = r"C:\projects\pokemon-platinum-dexnav\bizhawk\EmuHawk.exe"
+# Black's own BizHawk copy, so its runs never touch the BizHawk that the Platinum and HeartGold harnesses share
+# (C:\projects\pokemon-platinum-dexnav\bizhawk): stop only kills processes started from this folder
+EMUHAWK = r"C:\Projects\bizhawk-black\EmuHawk.exe"
+
+
+def our_pids():
+    """PIDs of EmuHawk processes running from this harness's BizHawk folder (other copies are left alone)."""
+    folder = os.path.dirname(EMUHAWK).lower() + os.sep
+    out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                          "Get-Process EmuHawk -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Id)|$($_.Path)\" }"],
+                         capture_output=True, text=True).stdout
+    return [int(pid) for pid, _, path in (l.partition("|") for l in out.splitlines()) if path.lower().startswith(folder)]
+
+
+def stop():
+    for pid in our_pids():
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    # taskkill returns before the process is gone; a lingering instance would steal bridge commands
+    for _ in range(200):
+        if not our_pids():
+            break
+        time.sleep(0.1)
 
 SHORTHAND = {
     "a": "press A 6", "b": "press B 6", "x": "press X 6", "y": "press Y 6",
@@ -141,13 +162,7 @@ def main():
     elif op == "run":
         run(sys.argv[2:])
     elif op == "stop":
-        subprocess.run(["taskkill", "/IM", "EmuHawk.exe", "/F"], capture_output=True)
-        # taskkill returns before the process is gone; a lingering instance would steal bridge commands
-        for _ in range(200):
-            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq EmuHawk.exe"], capture_output=True, text=True).stdout
-            if "EmuHawk.exe" not in out:
-                break
-            time.sleep(0.1)
+        stop()
 
 
 if __name__ == "__main__":

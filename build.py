@@ -3,8 +3,9 @@
     .venv/Scripts/python build.py [--baserom PATH] [--vanilla]
 
 The base ROM path comes from --baserom, else the BLACK_BASEROM environment variable, else baserom.txt (one line,
-gitignored). Output: build/gunk-black.nds (or build/vanilla-black.nds with --vanilla: the same pipeline with no
-patches, which must reproduce the base ROM byte for byte).
+gitignored). Output: build/gunk-black.nds and the release patch build/gunk-black.bps (checked by applying it to the
+base ROM), or build/vanilla-black.nds with --vanilla: the same pipeline with no patches, which must reproduce the
+base ROM byte for byte.
 """
 import argparse
 import hashlib
@@ -12,8 +13,9 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [os.path.join(ROOT, 'tools'), os.path.join(ROOT, 'gunk')]
+sys.path[:0] = [os.path.join(ROOT, 'tools'), os.path.join(ROOT, 'tools', 'patch'), os.path.join(ROOT, 'gunk')]
 
+import bps  # noqa: E402
 import ndsrom  # noqa: E402
 import patches  # noqa: E402
 
@@ -54,8 +56,15 @@ def main():
     open(path, 'wb').write(out)
     sha = hashlib.sha1(out).hexdigest()
     print(path, sha)
-    if args.vanilla and sha != BASE_SHA1:
-        sys.exit('vanilla build differs from the base ROM')
+    if args.vanilla:
+        if sha != BASE_SHA1:
+            sys.exit('vanilla build differs from the base ROM')
+        return
+    patch = bps.make(data, out)
+    if bps.apply(data, patch) != out:
+        sys.exit('the BPS patch does not reproduce the build')
+    open(path[:-4] + '.bps', 'wb').write(patch)
+    print(path[:-4] + '.bps', len(patch), 'bytes, verified')
 
 
 if __name__ == '__main__':

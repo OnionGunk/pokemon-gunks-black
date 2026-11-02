@@ -17,7 +17,7 @@ SUITE = os.path.dirname(os.path.abspath(__file__))
 EMU_DIR = os.path.dirname(SUITE)
 ROOT = os.path.dirname(EMU_DIR)  # C:\Projects\pokemon-black-gunk
 OUT = os.path.join(SUITE, 'out')
-BIZHAWK = r'C:\projects\pokemon-platinum-dexnav\bizhawk'
+BIZHAWK = r'C:\Projects\bizhawk-black'  # Black's own copy (see emu.py)
 SAVERAM_DIR = os.path.join(BIZHAWK, 'NDS', 'SaveRAM')
 BUS = 'ARM9_System_Bus'
 ROMS = {
@@ -167,12 +167,7 @@ class Game:
         os.makedirs(OUT, exist_ok=True)
 
     def stop(self):
-        subprocess.run(['taskkill', '/IM', 'EmuHawk.exe', '/F'], capture_output=True)
-        for _ in range(200):
-            out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq EmuHawk.exe'], capture_output=True, text=True).stdout
-            if 'EmuHawk.exe' not in out:
-                break
-            time.sleep(0.1)
+        subprocess.run([sys.executable, '-I', os.path.join(EMU_DIR, 'emu.py'), 'stop'], capture_output=True)  # this harness's BizHawk only
         for f in ('cmd.txt', 'done.txt', 'buttons.txt'):
             p = os.path.join(EMU_DIR, f)
             if os.path.exists(p):

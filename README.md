@@ -1,24 +1,61 @@
 # Pokémon Gunk's Black Version
 
-A Pokémon Black (USA/Europe, v1.0) ROM hack that carries over the changes of Pokémon Gunk's Platinum Version
-(and its HeartGold sibling) for long playthroughs. No difficulty changes.
+A quality-of-life hack of Pokémon Black, the sibling of Pokémon Gunk's Platinum Version and Gunk's HeartGold.
+It keeps the game's difficulty and story as they are and takes the grind and friction out, for long playthroughs.
 
-- What changes and why: [docs/GUNK_CHANGES.md](docs/GUNK_CHANGES.md)
-- How it's built and why this toolchain: [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)
+**Status: in development.** There's no release yet; the repo holds the source and the build. The full list of
+planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/GUNK_CHANGES.md).
 
-## Build
+## Features so far
 
-Needs your own dump of Pokémon Black (SHA-1 `26ad0b9967aa279c4a266ee69f52b9b2332399a5`). No ROM is in this repo.
+- **Eggs hatch twice as fast** (four times with Flame Body or Magma Armor).
+- **Trade evolutions without trading.** Kadabra evolves at level 36. Machoke, Graveler, Haunter, Boldore and
+  Gurdurr evolve at 37. Karrablast and Shelmet evolve by levelling up with the other one in the party. Items that
+  trigger a trade evolution (Metal Coat, King's Rock, Up-Grade and the rest) can be used like evolution stones.
+  Trading still works.
+- **Vitamins work up to 252 EVs** in a stat. The 510 total stays.
+
+Planned: instant text, faster EXP and HP bars, auto-run, a Repel prompt and Endless Repel, an IV/EV view, Exp. All,
+bag sorting, HM moves without teaching them, a Move Tutor in every Pokémon Center, and DexNav.
+
+## Play it
+
+Releases will ship a **BPS patch**, not a ROM. You need your own dump of
+**Pokémon Black (USA, Europe) (NDSi Enhanced), v1.0**:
+
+```
+sha1: 26ad0b9967aa279c4a266ee69f52b9b2332399a5
+```
+
+1. Download the `.bps` file from [Releases](../../releases).
+2. Apply it to your ROM with [Rom Patcher JS](https://www.marcrobledo.com/RomPatcher.js/) (in the browser),
+   Floating IPS, or `py tools/patch/bps.py apply <black.nds> <patch.bps> <out.nds>`.
+3. Play it in a DS emulator or on a flash cart, in DS mode. A real DSi in DSi mode rejects modified DSi-enhanced
+   ROMs.
+
+## Build it
+
+Python 3.13, plus your own Black dump (the build checks its SHA-1 and refuses any other):
 
 ```
 py -3.13 -m venv .venv
 .venv/Scripts/python -m pip install ndspy
 echo C:/path/to/black.nds > baserom.txt
-.venv/Scripts/python build.py            # build/gunk-black.nds
-.venv/Scripts/python build.py --vanilla  # build/vanilla-black.nds, must equal the base ROM
+.venv/Scripts/python build.py            # build/gunk-black.nds and build/gunk-black.bps (verified)
+.venv/Scripts/python build.py --vanilla  # the same pipeline with no patches: must equal the base ROM
 ```
 
-## Test
+How it works, and why it patches the retail ROM rather than building from a decompilation, is in
+[docs/TOOLCHAIN.md](docs/TOOLCHAIN.md). Save-safety tests: `emu/suite/` (BizHawk).
 
-`emu/suite/suite.py` (BizHawk, minimized): save cycles, power cycle, crash after save, crash during a save,
-damaged-save recovery. See `emu/suite/README.md`.
+## Credits
+
+- [pokeblack](https://github.com/squiddonaut/pokeblack) by squiddonaut and contributors. Its disassembly is the map
+  every code patch here is written against.
+- [ndspy](https://github.com/RoadrunnerWMC/ndspy) by RoadrunnerWMC, for the ROM's file system and overlay compression.
+- [PKHeX](https://github.com/kwsch/PKHeX), for the documented Gen 5 save layout the tests check.
+- [BizHawk](https://github.com/TASEmulators/BizHawk) and melonDS, for the emulator tests.
+- The DS Pokémon Hacking community's [Gen V documentation](https://ds-pokemon-hacking.github.io/).
+- The DexNav idea comes from later Pokémon games and fan hacks such as Pokémon Unbound.
+
+Pokémon is © Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial fan project and contains no ROM data.

@@ -10,3 +10,5 @@ __pycache__/
 /emu/cmd.txt
 /emu/done.txt
 /emu/buttons.txt
+*.bps
+/emu/suite/out/
