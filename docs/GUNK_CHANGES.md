@@ -65,7 +65,7 @@ in-game · ⏳ planned · — skipped.
 | 26 | Summary: A on Skills cycles stats / IVs / EVs (2957e59d) | port | Black's summary shows no IVs/EVs. New code in the summary overlay. | ⏳ |
 | 27 | Exp. All key item: half EXP and EVs to party members that didn't battle (2957e59d) | port | Black's Exp. Share is the Gen 4 held item (split EXP with the holder). There's no party-wide option, despite what the brief assumed (that arrived in Gen 6). Battle EXP code + a key item toggle. | ⏳ |
 | 28 | Vitamins up to 252 EVs (2957e59d) | port | `vitamins_to_252`: overlay 91's can-use test (`FUN_overlay_d_91__021bdd78`, one "EV < 100" per stat) and its EV calculation (`021be948`, clamp to 100) now use 252. The 510 total and the wings' 255 stay. | ✅ |
-| 29 | Bag: Start sorts the open pocket (2957e59d) | port | Black lets you drag items around on the touch screen, but has no automatic sort. | ⏳ |
+| 29 | Bag: Start sorts the open pocket (2957e59d) | skip | **Black already has it.** Start in the bag sorts the open pocket ("Items have been sorted!"; checked in the game with Fire Stone, Poké Ball, Great Ball and Sun Stone in the Items pocket). The handler is in overlay 70 (`021b7394`); it skips the pockets where order is fixed. An earlier verdict here said Black had no sort, which was wrong. | — |
 | 30 | Two registered items: Y and Select (2957e59d) | skip: Black has it | Black registers any number of items to Y; with more than one, Y opens a chooser. | — |
 | 31 | Honey tree timer (2957e59d) | skip | No honey trees in Black. | — |
 | 32 | Poké Radar chain length (2957e59d) | skip | No Poké Radar in Black. | — |
