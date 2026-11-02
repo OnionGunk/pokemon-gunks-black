@@ -254,5 +254,22 @@ def exp_bar_x2(rom):
     rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
 
 
+OVL_SUMMARY = 131  # at 0x021D4240
+SUMMARY_STAT_READS = [0x021DA0EC, 0x021DA140, 0x021DA19E, 0x021DA1FC, 0x021DA25A, 0x021DA2B8, 0x021DA316]
+
+
+def summary_iv_ev(rom):
+    """Summary: A on the stats page cycles stats, IVs and EVs (gunk/code/summary.c). The stats page's seven reads
+    of HP, max HP and the stats (FUN_overlay_d_131__021da0b0) go through Gunk_Summary_StatValue, and the summary's
+    call to its key handler goes through Gunk_Summary_Keys, which takes A on that page."""
+    code = bytearray(rom.overlay(OVL_SUMMARY))
+    base = rom.overlay_base(OVL_SUMMARY)
+    for site in SUMMARY_STAT_READS:  # bl PP_Get (FUN_02017e1c) -> bl Gunk_Summary_StatValue
+        patch(code, site - base, thumb_bl(site, 0x02017E1C), thumb_bl(site, code_syms['Gunk_Summary_StatValue']))
+    keys = thumb_bl(0x021D52C2, code_syms['Gunk_Summary_Keys'])
+    patch(code, 0x021D52C2 - base, thumb_bl(0x021D52C2, 0x021D52D4), keys)  # bl the key handler -> the wrapper
+    rom.replace_overlay(OVL_SUMMARY, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home, options_instant, exp_bar_x2]
+           code_home, options_instant, exp_bar_x2, summary_iv_ev]
