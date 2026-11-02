@@ -14,8 +14,9 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
   trigger a trade evolution (Metal Coat, King's Rock, Up-Grade and the rest) can be used like evolution stones.
   Trading still works.
 - **Vitamins work up to 252 EVs** in a stat. The 510 total stays.
+- **New games start on FAST text.**
 
-Planned: instant text, faster EXP and HP bars, auto-run, a Repel prompt and Endless Repel, an IV/EV view, Exp. All,
+Planned: INSTANT text, faster EXP and HP bars, auto-run, a Repel prompt and Endless Repel, an IV/EV view, Exp. All,
 bag sorting, HM moves without teaching them, a Move Tutor in every Pokémon Center, and DexNav.
 
 ## Play it
