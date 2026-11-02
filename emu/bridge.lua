@@ -240,6 +240,30 @@ while true do
                         f3:write(table.concat(row, " "), "\n")
                         f3:close()
                     end, tonumber(a[2]), "trace" .. a[2], D)
+                elseif op == "watchread" then
+                    -- watchread <addr> <path>: every ARM9 read of <addr>, append frame, pc and lr
+                    local path = a[3]
+                    event.onmemoryread(function()
+                        local r = emu.getregisters()
+                        local f3 = io.open(path, "a")
+                        f3:write(string.format("%d %08X %08X\n", emu.framecount(), (r["ARM9 r15"] or 0) & 0xFFFFFFFF,
+                            (r["ARM9 r14"] or 0) & 0xFFFFFFFF))
+                        f3:close()
+                    end, tonumber(a[2]), "watchr" .. a[2], "ARM9 System Bus")
+                elseif op == "unwatch" then
+                    -- unwatch: drop every memory callback added by watchread/watchwrite/trace
+                    event.unregisterbyname("watchr" .. a[2])
+                elseif op == "holddump" then
+                    -- holddump <Btn> <frames> <addr> <len> <path>: hold a button, dump memory while it is still held
+                    advance(tonumber(a[3]), { [a[2]] = true })
+                    local f2 = io.open(a[6], "wb")
+                    local addr, len = tonumber(a[4]), tonumber(a[5])
+                    local bytes = memory.read_bytes_as_array(addr, len, "ARM9 System Bus")
+                    local chunk = {}
+                    for i = 1, #bytes do chunk[#chunk + 1] = string.char(bytes[i]) end
+                    f2:write(table.concat(chunk))
+                    f2:close()
+                    advance(1)
                 elseif op == "watchwrite" then
                     -- watchwrite <addr> <path>: every ARM9 write to <addr>, append frame, pc, lr and r0-r3
                     local path = a[3]

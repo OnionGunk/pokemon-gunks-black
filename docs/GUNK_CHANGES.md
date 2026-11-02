@@ -116,7 +116,18 @@ before the next.
    - First users: #36 `gHeapAllocFails` (a counter on GFL's allocation-failure path), then INSTANT text.
 3. **Text and bars (#17-19):** INSTANT text speed in Options (and new games start on FAST); EXP bar ×2; HP bars
    1 px/frame. Find the text printer's per-frame step and the battle gauge code in the disassembly.
-4. **Auto-run (#20):** invert B for running in the field input code.
+4. **Auto-run (#20):** invert B for running in the field input code. Found so far: the held-buttons word is a u16
+   at **0x0214C360** (ARM9 .bss), written each frame by a copy at 0x020858A4 (lr 0x020851E8). No literal in the
+   disassembly points at it, so code reaches it through a struct pointer, and melonDS's read callbacks don't fire,
+   so `watchread` can't find the readers. Next: break on the field's movement-speed choice instead. Watch the
+   player object's speed or animation field with `watchwrite` while walking and running, then follow pc/lr back to
+   the B test.
+
+Debug tools added to `emu/bridge.lua`: `watchwrite <addr> <path>` (logs every write with pc, lr and r0-r3; this
+found the options defaults), `holddump <Btn> <frames> <addr> <len> <path>`, and `watchread` (no effect on this core).
+Useful addresses (retail = Gunk's): the save buffer is at 0x0221BBAC in the field, laid out like the flash save,
+with the party at +0x18E00, the bag at +0x18400 (Medicine pocket +0x7D8), and options/trainer at +0x19400. The
+main system struct is at 0x020AA194, with the frame counter at +0xC.
 5. **Summary IV/EV view (#26)** and **bag sorting (#29).**
 6. **Field moves without the move (#24)** and the **Move Tutor in every Pokémon Center (#25)**. That needs
    Black's script format: CTRMap's PokéScript or SwissArmyKnife docs for the event and script NARCs.
