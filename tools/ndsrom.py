@@ -1,19 +1,23 @@
 """In-place editing of a DSi-enhanced NDS ROM (Pokémon Black).
 
 The ROM is never re-laid out: every byte not touched by a patch stays where retail put it, including the TWL
-(DSi) region and the digest tables. A file that still fits in its slot is rewritten in place (the rest of the slot
-padded with 0xFF); a file that grows moves to the unused space after the TWL region and its FAT entry is pointed
-there. Header and banner CRCs are recomputed on save.
+(DSi) region. A file that still fits in its slot is rewritten in place (the rest of the slot padded with 0xFF); a
+file that grows moves into the space of the DSi digest tables and its FAT entry is pointed there. Header and banner
+CRCs are recomputed on save.
 
-The DSi digests (header 0x1E0..0x1FF, HMACs at 0x300) are left stale, so a patched ROM boots in DS mode only
-(every emulator's default; flash carts run DS mode too). Nothing in DS mode checks them.
+The DSi digests (header 0x1E0..0x1FF, HMACs at 0x300) go stale with any change anyway, so a patched ROM boots in DS
+mode only (every emulator's default; flash carts run DS mode too), and nothing in DS mode reads the digest tables.
+That makes them the free space: the sector and block hash tables, 0xBFD9C00-0xC3B8C78 (~3.8 MB), inside the area a
+DS-mode game can read. The space after the TWL region looks free but isn't usable: in DS mode a DSi-enhanced cart
+doesn't serve reads from the TWL area onward (0xC403000+), and melonDS emulates that. Files moved there read back
+as garbage, and the game hangs on a white screen when it loads the field overlay.
 """
 import struct
 
 from ndspy import codeCompression
 
-FREE_START = 0xC460000  # after the TWL region (ends 0xC45D400); 0xFF up to the end of the 256 MB cart
-FREE_END = 0x10000000
+FREE_START = 0xBFD9C00  # header 0x1F0: the DSi sector hashtable, then the block hashtable (0x1F8)
+FREE_END = 0xC3B8C78  # end of the block hashtable; the DS-mode ROM area ends at 0xC3B8E00 (header 0x80)
 ALIGN = 0x200
 
 

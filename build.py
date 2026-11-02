@@ -37,6 +37,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--baserom')
     ap.add_argument('--vanilla', action='store_true')
+    ap.add_argument('--only', help='comma-separated patch names, for bisecting (output build/only-black.nds)')
     args = ap.parse_args()
 
     data = open(baserom_path(args.baserom), 'rb').read()
@@ -46,13 +47,16 @@ def main():
 
     rom = ndsrom.Rom(data)
     if not args.vanilla:
+        only = args.only.split(',') if args.only else None
         for p in patches.PATCHES:
-            p(rom)
-            print('applied', p.__name__)
+            if only is None or p.__name__ in only:
+                p(rom)
+                print('applied', p.__name__)
     out = rom.save()
 
     os.makedirs(os.path.join(ROOT, 'build'), exist_ok=True)
-    path = os.path.join(ROOT, 'build', 'vanilla-black.nds' if args.vanilla else 'gunk-black.nds')
+    name = 'vanilla-black.nds' if args.vanilla else 'only-black.nds' if args.only else 'gunk-black.nds'
+    path = os.path.join(ROOT, 'build', name)
     open(path, 'wb').write(out)
     sha = hashlib.sha1(out).hexdigest()
     print(path, sha)
