@@ -100,12 +100,20 @@ before the next.
    battle, and find the party and bag in RAM through the loaded save buffer. Then test HP Up ×26 to 252 EVs;
    a Metal Coat on Onix; Kadabra at 36 via EXP; and an egg's cycle counter dropping 2 per 256 steps. These move
    #28, #33 and #34 from 🟡 to ✅.
-2. **A home for new code.** Measure Black's main-RAM arena and heaps in the emulator: `OS` arena bounds and the
-   GFL heap table, from the code around the main system struct at 0x020AA194. Then reserve a fixed region at
-   boot (lower the arena's top before the heaps are created) and load a code blob there from a new ROM file
-   (`gunk/code.bin`, built by `arm-none-eabi-gcc -mthumb -march=armv5te` from `gunk/src/`, linked at that
-   address). Hooks are written by `patches.py` with the same retail-bytes check. The first user is #36,
-   `gHeapAllocFails` on GFL's allocation-failure path. The suite then also fails on out-of-memory.
+2. **A home for new code.** Measured 2026-11-02 in the field after a battle, the bag, the party menu and
+   evolution scenes. The SDK's arena table (0x02FFFDA0: lo[9], then hi[9]) puts the main arena at
+   **0x023B47F0-0x023E0000** (~178 KB) once the game has made its heaps, and that whole range was zero. Design:
+   - Put new code at the top, **0x023D0000-0x023E0000 (64 KB)**, as a new ARM9 overlay. Append an overlay-table
+     entry (#237, RAM 0x023D0000) and a FAT entry (file id 484, after the last named file; the table and FAT move
+     to free ROM space and the header's 0x48/0x50 pointers follow).
+   - One early hook in the boot code (after the heaps are made) calls the SDK's `FS_LoadOverlay` for #237 and
+     lowers the main arena's hi pointer to 0x023D0000, so nothing the SDK allocates later can land on the code.
+   - Code: C built with MSYS2's `arm-none-eabi-gcc -mthumb -march=armv5te -Os`, linked at 0x023D0000 against a
+     symbol file of retail addresses from pokeblack. Hooks are written by `patches.py` with the same retail-bytes
+     check.
+   - Before relying on it, add a suite check: fill 0x023B47F0-0x023D0000 with a canary at the start and confirm
+     it survives every test, with battle, PC, Pokédex and C-Gear scenes added to the tour.
+   - First users: #36 `gHeapAllocFails` (a counter on GFL's allocation-failure path), then INSTANT text.
 3. **Text and bars (#17-19):** INSTANT text speed in Options (and new games start on FAST); EXP bar ×2; HP bars
    1 px/frame. Find the text printer's per-frame step and the battle gauge code in the disassembly.
 4. **Auto-run (#20):** invert B for running in the field input code.
