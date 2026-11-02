@@ -6,8 +6,7 @@
    wild one, and a Gen 5 personality value is an independent random number.
 
    Field overlay (21):
-   - Gunk_FieldInput wraps the field's per-frame input routine (FUN_overlay_d_21__021a2df0, called through a
-     table) and notes R (and L).
+   - DexNav_Input runs with the field's per-frame input (field.c) and notes R (and L).
    - Gunk_StepEncount wraps the per-frame step-encounter check (FUN_overlay_d_21__0218b208), whose result tells
      the field to start the battle: with R noted it tries a forced encounter the way Sweet Scent does
      (FUN_overlay_d_21__021a9f40, type 1), which only succeeds where wild Pokémon live.
@@ -44,7 +43,6 @@ struct EncRecord {           /* what the slot pick fills in, 20 bytes each */
     u8 rest[14];
 };
 
-#define FieldInput ((void (*)(void *))(0x021A2DF0 | 1))
 #define StepEncount ((u32 (*)(void *, void *, void *))(0x0218B208 | 1))
 #define FieldSys_GetEncount ((void *(*)(void *))(0x02188CE8 | 1))
 #define Encount_Try ((u32 (*)(void *, u32))(0x021A9F40 | 1))
@@ -132,11 +130,11 @@ static u32 Random(void)
     return sRand >> 16;
 }
 
-void Gunk_FieldInput(void *fieldSys)
+/* with the field's per-frame input (field.c) */
+void DexNav_Input(void)
 {
     if (Key_GetTrg() & PAD_R)
         sRequested = (Key_GetCont() & PAD_L) ? 2 : 1;
-    FieldInput(fieldSys);
 }
 
 u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)

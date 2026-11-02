@@ -251,8 +251,8 @@ while true do
                         f3:close()
                     end, tonumber(a[2]), "watchr" .. a[2], "ARM9 System Bus")
                 elseif op == "unwatch" then
-                    -- unwatch: drop every memory callback added by watchread/watchwrite/trace
-                    event.unregisterbyname("watchr" .. a[2])
+                    -- unwatch <addr>: drop the callbacks watchread/watchwrite/trace added for <addr>
+                    for _, k in ipairs({ "watchr", "watchw", "trace" }) do event.unregisterbyname(k .. a[2]) end
                 elseif op == "holddump" then
                     -- holddump <Btn> <frames> <addr> <len> <path>: hold a button, dump memory while it is still held
                     advance(tonumber(a[3]), { [a[2]] = true })

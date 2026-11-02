@@ -25,6 +25,7 @@ def identity(rom):
 # --- quality of life -----------------------------------------------------------------------------------------------
 
 OVL_FIELD = 21  # loads with the overworld at 0x02187F00
+OVL_MAP_CHANGE = 20  # warps: loads the new zone, at 0x02183B60
 
 
 def faster_eggs(rom):
@@ -212,7 +213,12 @@ def code_home(rom):
         for sp in range(650):
             bits = int.from_bytes(personal.file(sp)[0x28:0x38], 'little')
             blob[at + sp] = bits >> 95 & 0x3F
-        open(os.path.join(cc.OUT, 'gunk.bin'), 'wb').write(blob)  # what the suite compares the RAM against
+    if 'gGunkFollowerSprites' in syms:  # follower.c: Black's species/gender/form -> overworld sprite table
+        table = Narc(rom.file(rom.file_id('a/2/1/1'))).file(0)
+        assert len(table) // 8 < 600 and len(table) % 8 == 0
+        at = syms['gGunkFollowerSprites'] - CODE_HOME
+        blob[at:at + len(table) + 8] = table + bytes(8)
+    open(os.path.join(cc.OUT, 'gunk.bin'), 'wb').write(blob)  # what the suite compares the RAM against
     code = bytearray(rom.arm9())
     patch(code, 0x020865CC - ARM9, 'a4009f05', '8f07a003')  # ldreq r0, =0x023E0000 -> moveq r0, #0x023C0000
     rom.replace_arm9(rom.add_autoload(code, CODE_HOME, blob, bss))
@@ -590,7 +596,27 @@ def dexnav(rom):
     rom.replace_overlay(OVL_FIELD, bytes(code))
 
 
+def followers(rom):
+    """Follower Pokémon (gunk/code/follower.c): after the field loads a zone's objects (FUN_overlay_d_21__021894e0,
+    called at 0x021894BC on crossing into another zone) and after a warp (FUN_overlay_d_20__021858e4, called at
+    0x021858A2), the follower is added with Black's unused "pair" movement, which walks after the
+    player. That movement picks its step's speed from the player's current animation code, but Black's copy reads
+    the follower's own (FUN_overlay_d_21__0219ba2c drops the player it just looked up), which is none (0xFF) for a
+    follower that hasn't moved yet, so it never steps: the `adds r0, r4` that replaces the player goes."""
+    code = bytearray(rom.overlay(OVL_FIELD))
+    base = rom.overlay_base(OVL_FIELD)
+    site = 0x021894BC
+    patch(code, site - base, thumb_bl(site, 0x021894E0), thumb_bl(site, code_syms['Gunk_LoadZoneObjects']))
+    patch(code, 0x0219BA38 - base, '201c', 'c046')  # adds r0, r4, #0 -> nop: the player's animation code
+    rom.replace_overlay(OVL_FIELD, bytes(code))
+    code = bytearray(rom.overlay(OVL_MAP_CHANGE))
+    base = rom.overlay_base(OVL_MAP_CHANGE)
+    site = 0x021858A2  # after a warp: FUN_overlay_d_20__021858e4 loads the new zone's objects
+    patch(code, site - base, thumb_bl(site, 0x021858E4), thumb_bl(site, code_syms['Gunk_LoadWarpObjects']))
+    rom.replace_overlay(OVL_MAP_CHANGE, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
-           dexnav]
+           dexnav, followers]

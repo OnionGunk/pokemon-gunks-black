@@ -26,8 +26,9 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **DexNav:** press R in tall grass to meet a Pokémon of that route, starting with one you haven't caught; L+R
   switches to the next. Searching for the same one again builds a chain for better IVs and shiny odds.
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
-
-Planned: follower Pokémon.
+- **Follower Pokémon:** the first Pokémon in your party walks behind you, using Black's own overworld sprites.
+  For now that covers #1-493. Gen 5 Pokémon get a follower once a sprite pack for them is in. It goes back in its
+  ball while you cycle or surf.
 
 ## Play it
 
