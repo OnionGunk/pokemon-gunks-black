@@ -67,18 +67,30 @@ class Rom:
         nxt = min((s for s, _ in (self.file_range(i) for i in range(self.nfiles)) if s >= end), default=end)
         return min(nxt, (end + ALIGN - 1) & ~(ALIGN - 1))
 
+    def _alloc(self, size):
+        start = self.free
+        self.free = (start + size + ALIGN - 1) & ~(ALIGN - 1)
+        if self.free > FREE_END:
+            raise ValueError('ROM full')
+        return start
+
     def replace_file(self, fid, new):
         start, end = self.file_range(fid)
         if start + len(new) <= self._slot_end(fid):
             self.data[start:self._slot_end(fid)] = b'\xFF' * (self._slot_end(fid) - start)
         else:
             self.data[start:end] = b'\xFF' * (end - start)
-            start = self.free
-            self.free = (start + len(new) + ALIGN - 1) & ~(ALIGN - 1)
-            if self.free > FREE_END:
-                raise ValueError('ROM full')
+            start = self._alloc(len(new))
         self.data[start:start + len(new)] = new
         struct.pack_into('<II', self.data, self.fat_off + fid * 8, start, start + len(new))
+
+    def _move_file(self, fid):
+        start, end = self.file_range(fid)
+        body = self.file(fid)
+        self.data[start:end] = b'\xFF' * (end - start)
+        new = self._alloc(len(body))
+        self.data[new:new + len(body)] = body
+        struct.pack_into('<II', self.data, self.fat_off + fid * 8, new, new + len(body))
 
     # overlays ------------------------------------------------------------------------------
     def overlay_entry(self, n):
@@ -103,21 +115,58 @@ class Rom:
     # ARM9 static module -------------------------------------------------------------------------
     ARM9_RAM = 0x02004000
     ARM9_MODPARAMS = 0xFB0  # SDK module params (magic 0xDEC00621 at +0x1C), raw in the first 16 KB; +0x14 = compressed static end
-    ARM9_SLOT_END = 0x73A00  # next ROM item after the retail ARM9
-
     def arm9(self):
         off, _, _, size = struct.unpack_from('<4I', self.data, 0x20)
         return bytes(codeCompression.decompress(bytes(self.data[off:off + size])))
 
+    def _arm9_slot_end(self):
+        """Start of the next ROM item after the ARM9 (retail: the ARM9 overlay table at 0x73A00)."""
+        off = struct.unpack_from('<I', self.data, 0x20)[0]
+        starts = [struct.unpack_from('<I', self.data, h)[0] for h in (0x30, 0x40, 0x48, 0x50, 0x68)]
+        starts += [s for s, _ in (self.file_range(i) for i in range(self.nfiles))]
+        return min(s for s in starts if s > off)
+
+    def _make_arm9_room(self, end):
+        """Move the ARM9 overlay table and the files right after the ARM9 into free space, so the ARM9 can grow in
+        place up to `end`. The ARM9 itself stays at 0x4000 (its first 2 KB are the cartridge's secure area)."""
+        if self.ovt_off < end:
+            table = bytes(self.data[self.ovt_off:self.ovt_off + self.novl * 32])
+            self.data[self.ovt_off:self.ovt_off + len(table)] = b'\xFF' * len(table)
+            self.ovt_off = self._alloc(len(table))
+            self.data[self.ovt_off:self.ovt_off + len(table)] = table
+            struct.pack_into('<I', self.data, 0x50, self.ovt_off)
+        arm9_off = struct.unpack_from('<I', self.data, 0x20)[0]
+        for fid in range(self.nfiles):
+            start, _ = self.file_range(fid)
+            if arm9_off < start < end:
+                self._move_file(fid)
+
     def replace_arm9(self, code):
         """BLZ-compress the ARM9 again (the secure area and module params stay raw) and fix its sizes."""
         off = struct.unpack_from('<I', self.data, 0x20)[0]
+        old_end = off + struct.unpack_from('<I', self.data, 0x2C)[0]
         comp = bytearray(codeCompression.compress(code, isArm9=True))
-        assert off + len(comp) <= self.ARM9_SLOT_END, 'ARM9 outgrew its ROM slot'
+        if off + len(comp) > self._arm9_slot_end():
+            self._make_arm9_room(off + len(comp))
         struct.pack_into('<I', comp, self.ARM9_MODPARAMS + 0x14, self.ARM9_RAM + len(comp))
-        self.data[off:self.ARM9_SLOT_END] = b'\xFF' * (self.ARM9_SLOT_END - off)
+        self.data[off:old_end] = b'\xFF' * (old_end - off)
         self.data[off:off + len(comp)] = comp
         struct.pack_into('<I', self.data, 0x2C, len(comp))
+
+    def add_autoload(self, code, addr, blob, bss=0):
+        """Append an autoload block to the (decompressed) ARM9 `code`: at boot, crt0 copies `blob` to `addr` and
+        zeroes `bss` bytes after it, before anything else runs. Autoload data sits at the end of the binary,
+        followed by the list of {address, size, static-init table, bss size} entries; the new block goes after
+        the retail blocks and its entry after theirs. Returns the new code."""
+        mp = self.ARM9_MODPARAMS
+        list_start, list_end = struct.unpack_from('<II', code, mp)
+        assert list_end == self.ARM9_RAM + len(code), 'the autoload list is not at the end of the ARM9'
+        blob = bytes(blob) + b'\0' * (-len(blob) % 4)
+        at = list_start - self.ARM9_RAM
+        entries = bytes(code[at:])
+        out = bytearray(code[:at]) + blob + entries + struct.pack('<4I', addr, len(blob), 0, bss)
+        struct.pack_into('<II', out, mp, list_start + len(blob), list_end + len(blob) + 16)
+        return bytes(out)
 
     # header and banner ---------------------------------------------------------------------
     def set_title(self, title):

@@ -53,10 +53,10 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **FAST default done** (`text_fast_default`): the options' new-game defaults (`FUN_02008320`, ARM9) set text speed 2 instead of 1. Checked: a new game's options word is 0x0202 (retail 0x0201), and the suite passes. INSTANT still needs new code (the text printer's per-frame loop) and a fourth choice on the Options row. | FAST ✅, INSTANT ⏳ |
+| 17 | INSTANT text speed; new games start on FAST (c0644cff, 9c1ccbc6) | port | **FAST default done** (`text_fast_default`): a new game's options word is 0x0202 (retail 0x0201). **INSTANT engine done** (`text_instant`): text speed 3 prints 127 characters per frame through a new wait-table entry (details in plan step 3); checked by setting the option to 3 in RAM, where the gift-box line appears whole within 8 frames while FAST is mid-word. **Still to do: a way to pick it in Options.** The text-speed row is three 48-px touch-button sprites (overlay 68, table at 0x021BB704) with their own animations; a fourth needs new sprite graphics, or FAST could switch to INSTANT when tapped again. | FAST ✅, INSTANT 🟡 |
 | 18 | EXP bar twice as fast (c0644cff) | port | Battle gauge code in the battle overlays. Constant or small code patch. | ⏳ |
 | 19 | HP bars one pixel per frame (566793ec) | port | Same gauge code as #18. | ⏳ |
-| 20 | Auto-run, hold B to walk (c0644cff) | port | Black has **no** run toggle (it's hold B only; B2W2 doesn't add one either). Field input patch: invert B for running (only where running is allowed already). | ⏳ |
+| 20 | Auto-run, hold B to walk (c0644cff) | port | **Done** (`auto_run`). Black has no run toggle (hold B only; B2W2 doesn't add one either). Three branches in the field overlay flip: the grid-map step picker `FUN_overlay_d_21__021a4dc0` (Running Shoes flag 0x963 and B held → run 0x58, else walk 0x0C), the turn-in-place skip before it, and the rail-map picker `021a5edc`. Without the Running Shoes nothing changes. Checked in the game: with the shoes flag set, no B runs two tiles in the time B walks one. | ✅ |
 | 21 | Repel prompt when a Repel wears off (c0644cff) | port | Black has **no** prompt (B2W2 added it). The repel step counter is in the Encount block (0x21B00 +0x2D steps, +0x2E type). New field script + script command. | ⏳ |
 | 22 | Endless Repel key item from Mom (c0644cff) | port | New item: Black's item table has 627 entries (0-626) and unused IDs inside it. A key item with a script; Mom gives it at the start. | ⏳ |
 | 23 | Reusable TMs (e8f1b80d) | skip: Black has it | Gen 5 TMs are reusable. | — |
@@ -102,29 +102,39 @@ before the next.
    #28, #33 and #34 from 🟡 to ✅.
 2. **A home for new code.** Measured 2026-11-02 in the field after a battle, the bag, the party menu and
    evolution scenes. The SDK's arena table (0x02FFFDA0: lo[9], then hi[9]) puts the main arena at
-   **0x023B47F0-0x023E0000** (~178 KB) once the game has made its heaps, and that whole range was zero. Design:
-   - Put new code at the top, **0x023D0000-0x023E0000 (64 KB)**, as a new ARM9 overlay. Append an overlay-table
-     entry (#237, RAM 0x023D0000) and a FAT entry (file id 484, after the last named file; the table and FAT move
-     to free ROM space and the header's 0x48/0x50 pointers follow).
-   - One early hook in the boot code (after the heaps are made) calls the SDK's `FS_LoadOverlay` for #237 and
-     lowers the main arena's hi pointer to 0x023D0000, so nothing the SDK allocates later can land on the code.
-   - Code: C built with MSYS2's `arm-none-eabi-gcc -mthumb -march=armv5te -Os`, linked at 0x023D0000 against a
-     symbol file of retail addresses from pokeblack. Hooks are written by `patches.py` with the same retail-bytes
-     check.
-   - Before relying on it, add a suite check: fill 0x023B47F0-0x023D0000 with a canary at the start and confirm
-     it survives every test, with battle, PC, Pokédex and C-Gear scenes added to the tour.
-   - First users: #36 `gHeapAllocFails` (a counter on GFL's allocation-failure path), then INSTANT text.
-3. **Text and bars (#17-19):** INSTANT text speed in Options (and new games start on FAST); EXP bar ×2; HP bars
-   1 px/frame. Find the text printer's per-frame step and the battle gauge code in the disassembly.
-4. **Auto-run (#20):** invert B for running in the field input code. Found so far: the held-buttons word is a u16
-   at **0x0214C360** (ARM9 .bss), written each frame by a copy at 0x020858A4 (lr 0x020851E8). No literal in the
-   disassembly points at it, so code reaches it through a struct pointer, and melonDS's read callbacks don't fire,
-   so `watchread` can't find the readers. Next: break on the field's movement-speed choice instead. Watch the
-   player object's speed or animation field with `watchwrite` while walking and running, then follow pc/lr back to
-   the B test.
+   **0x023B47F0-0x023E0000** (~178 KB) once the game has made its heaps, and that whole range was zero.
+   **Built (`code_home`), simpler than first planned:**
+   - The code is a fifth ARM9 **autoload** block, not a new overlay. crt0 already copies the autoload blocks
+     (ITCM, DTCM and two small ones) from the end of the ARM9 binary to their addresses before anything else
+     runs, so the code is in place at boot with no hook and no file-system call. Each list entry is
+     {address, size, static-init table, bss size}; ours has no init table.
+   - Home: **0x023C0000-0x023E0000 (128 KB)**. The main arena's top comes from `OS_GetInitArenaHi`
+     (`FUN_02086594`) as `ldreq r0, =0x023E0000`, and that literal is shared with another case, so the
+     instruction becomes `moveq r0, #0x023C0000`. 0x023D0000 isn't an ARM immediate, which is why the home
+     starts at 0x023C0000; ~46 KB of the measured free arena stay free above the heaps.
+   - The ARM9 grows in place at ROM 0x4000 (its first 2 KB are the secure area). If it outgrows its slot,
+     `ndsrom.py` moves the overlay table and the first overlay files to free space first.
+   - Code: `gunk/code/*.c`, built by `tools/cc.py` with MSYS2's `arm-none-eabi-gcc -mthumb -march=armv5te -Os`,
+     linked at 0x023C0000 (`link.ld`) against retail addresses in `retail.ld`. It starts with a `GUNK` magic.
+   - Suite check: after every Gunk's test the suite dumps 0x023C0000-0x023E0000 and fails unless it holds exactly
+     the compiled code followed by zeros.
+   - First users: the bigger ports below (IV/EV view, bag sort, Exp. All, DexNav). INSTANT text needs no code
+     (see 3).
+3. **Text and bars (#17-19):** text speed reaches the printers through a signed wait table at 0x0209DFB0
+   ({3, 1, -2, -4, 6}: frames per character, or characters per frame when negative) via three mappers
+   (`FUN_02012ffc` option as index, `FUN_02013020` option + 1, `FUN_02013050` 0,1,2 -> 4,0,1), clamped by
+   `FUN_02013080`. INSTANT uses the padding byte at index 5 (-127); every mapper sends option 3 there. No new code
+   was needed. Next: the Options UI for it (see #17), then the EXP bar ×2 and HP bars 1 px/frame, which need a
+   battle state for tracing.
+4. **Auto-run (#20): done.** The keys come from GFL's key struct (update `FUN_02035F38`, getters `FUN_020362DC`
+   trigger and `FUN_0203630C` held). The grid-map player controller is `FUN_overlay_d_21__021a41b0`, called each frame
+   with (trigger, held, flags), where flag bit 0 is "has the Running Shoes" (event flag 0x963, checked by
+   `FUN_overlay_d_21__021a35bc`; flags live at eventwork+0x27C, eventwork at 0x0223BCAC in the bedroom). The
+   0x0214C360 word noted earlier was a saved register in a thread context, not the keys.
 
 Debug tools added to `emu/bridge.lua`: `watchwrite <addr> <path>` (logs every write with pc, lr and r0-r3; this
-found the options defaults), `holddump <Btn> <frames> <addr> <len> <path>`, and `watchread` (no effect on this core).
+found the options defaults), `holddump <Btn> <frames> <addr> <len> <path>`, and `watchread` (no effect on this core). `trace <addr> <path>`
+(execute callbacks) does work on this core: it logs r0-r3, lr and the stack each time an address runs.
 Useful addresses (retail = Gunk's): the save buffer is at 0x0221BBAC in the field, laid out like the flash save,
 with the party at +0x18E00, the bag at +0x18400 (Medicine pocket +0x7D8), and options/trainer at +0x19400. The
 main system struct is at 0x020AA194, with the frame counter at +0xC.
@@ -156,6 +166,9 @@ How a torn save behaves (identical in both builds): Black writes the main half f
 after the confirming A, block by block, with the checksum table last at about +330), then the backup half (about
 +350 to +410). A cut anywhere leaves at most one half torn. The game loads the other half, so you continue from the
 previous save (cut before about +330) or the new one (cut after). The next save rewrites both halves.
+
+After auto-run, the code home and the INSTANT engine (start state remade from that build), Gunk's Black passes
+4/4 again, and the code home at 0x023C0000-0x023E0000 held exactly the compiled code plus zeros after every test.
 
 The first Gunk's build hung on a white screen entering the field. Overlay 21 had been moved past the DSi region,
 which a DS-mode cart can't read. Fixed in 34e21de; see TOOLCHAIN.md.

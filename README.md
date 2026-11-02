@@ -15,8 +15,9 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
   Trading still works.
 - **Vitamins work up to 252 EVs** in a stat. The 510 total stays.
 - **New games start on FAST text.**
+- **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
 
-Planned: INSTANT text, faster EXP and HP bars, auto-run, a Repel prompt and Endless Repel, an IV/EV view, Exp. All,
+Planned: INSTANT text, faster EXP and HP bars, a Repel prompt and Endless Repel, an IV/EV view, Exp. All,
 bag sorting, HM moves without teaching them, a Move Tutor in every Pokémon Center, and DexNav.
 
 ## Play it
@@ -36,7 +37,9 @@ sha1: 26ad0b9967aa279c4a266ee69f52b9b2332399a5
 
 ## Build it
 
-Python 3.13, plus your own Black dump (the build checks its SHA-1 and refuses any other):
+Python 3.13, `arm-none-eabi-gcc` for the new code (MSYS2: `pacman -S mingw-w64-ucrt-x86_64-arm-none-eabi-gcc`;
+set `ARM_GCC_BIN` if it isn't in `C:\msys64\ucrt64\bin` or on PATH), plus your own Black dump (the build checks
+its SHA-1 and refuses any other):
 
 ```
 py -3.13 -m venv .venv

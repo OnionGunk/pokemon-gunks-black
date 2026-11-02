@@ -19,7 +19,7 @@ import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import HALF, OUT, TABLE, Game, TestFailure, block, check, footer, half_ok, half_status  # noqa: E402
+from lib import HALF, OUT, ROOT, TABLE, Game, TestFailure, block, check, footer, half_ok, half_status  # noqa: E402
 
 TESTS = []
 FRAME_COUNTER = 0x020AA1A0  # +0xC in the main system struct at 0x020AA194 (TwlMain), counts main-loop frames
@@ -127,6 +127,19 @@ def take_steps(g, n):
     """Move somewhere new in the bedroom so each save holds a different position."""
     moves = ['press Left 16', 'press Down 16', 'press Right 16', 'press Up 16']
     g.run(moves[n % 4], 'wait 30')
+
+
+CODE_HOME, CODE_HOME_END = 0x023C0000, 0x023E0000  # see gunk/patches.py code_home
+
+
+def check_code_home(g):
+    """The code home must still hold exactly the compiled code, then zeros up to 0x023E0000: anything else means
+    something in the game wrote over it (a heap or the OS arena reaching into it)."""
+    blob = open(os.path.join(ROOT, 'build', 'code', 'gunk.bin'), 'rb').read()
+    ram = g.dump(CODE_HOME, CODE_HOME_END - CODE_HOME, os.path.join(OUT, '_home.bin'))
+    check(ram[:len(blob)] == blob, 'code home: the code at 0x023C0000 was overwritten')
+    dirty = [CODE_HOME + i for i in range(len(blob), len(ram), 4) if ram[i:i + 4] != bytes(4)]
+    check(not dirty, f'code home: {len(dirty)} non-zero words after the code, first at {dirty[:1] and hex(dirty[0])}')
 
 
 # --- tests --------------------------------------------------------------------------------------
@@ -259,6 +272,8 @@ def main():
         t0 = time.time()
         try:
             t(g)
+            if rom == 'gunk':
+                check_code_home(g)
             report.append(f'- PASS {t.__name__} ({time.time() - t0:.0f} s)')
             print('   PASS', flush=True)
         except Exception as e:  # noqa: BLE001

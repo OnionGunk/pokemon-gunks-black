@@ -37,11 +37,9 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
 - **DS mode only.** The DSi digests and HMACs in the header go stale with any change. Emulators (melonDS, BizHawk,
   DeSmuME, Android emulators) run DS mode by default, and so do flash carts. A real DSi in DSi mode would reject
   the ROM. Black's DSi enhancements are minor.
-- **New code needs a home.** The first ports only change constants and data. Instant text, Exp. All, the IV/EV
-  view, the Repel prompt, DexNav and the other bigger ports need free RAM for new code. The plan is to reserve
-  some at boot: lower the main arena's high end in the ARM9 init, then load a new code blob from the ROM there.
-  That has to be measured in the emulator (the arena's free space, and that the heaps never touch it) before the
-  first code port. See the plan in `GUNK_CHANGES.md`.
+- **New code lives at 0x023C0000-0x023E0000 (128 KB).** It's an extra ARM9 autoload block that crt0 copies
+  there at boot, and the main arena's top is lowered to 0x023C0000 so no heap reaches it. Details in
+  `GUNK_CHANGES.md` (plan step 2). Building it needs `arm-none-eabi-gcc` (MSYS2 ucrt64).
 
 ## Layout
 
@@ -50,5 +48,6 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
 - `tools/narc.py`: same-size edits inside NARCs, keeping every other byte.
 - `tools/patch/bps.py`: BPS patches (from the Platinum hack); `build.py` makes `build/gunk-black.bps` and checks it reproduces the ROM.
 - `gunk/patches.py`: the hack, one function per change.
+- `gunk/code/`: C for the code home, built by `tools/cc.py`.
 - `emu/`: BizHawk harness (from the Platinum and HeartGold hacks) and `emu/suite/` save tests.
 - Python: `.venv` (Python 3.13 + `ndspy`). Create it with `py -3.13 -m venv .venv && .venv/Scripts/python -m pip install ndspy`.

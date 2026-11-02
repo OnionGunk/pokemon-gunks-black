@@ -34,6 +34,20 @@ def faster_eggs(rom):
     rom.replace_overlay(OVL_FIELD, bytes(code))
 
 
+def auto_run(rom):
+    """Run without holding B; hold B to walk. Only where running is allowed already: the Running Shoes (event flag
+    0x963, FUN_overlay_d_21__021a35bc) still have to be in the bag, and bike, surf and the rest are untouched.
+    - FUN_overlay_d_21__021a4dc0 picks the on-foot step on grid maps: shoes and B held -> run (0x58), else walk (0x0C).
+    - The state picker before it skips the turn-in-place when you set off running in a new direction.
+    - FUN_overlay_d_21__021a5edc is the same choice on rail maps (B held -> 0x58)."""
+    code = bytearray(rom.overlay(OVL_FIELD))
+    base = rom.overlay_base(OVL_FIELD)
+    patch(code, 0x021A4DE4 - base, '24d0', '24d1')  # tst B, held keys; beq walk -> bne walk
+    patch(code, 0x021A457E - base, '01d1', '01d0')  # bne no-turn -> beq no-turn
+    patch(code, 0x021A5EF0 - base, '01d0', '01d1')  # rail: beq walk -> bne walk
+    rom.replace_overlay(OVL_FIELD, bytes(code))
+
+
 # evolution methods (a/0/1/9: 7 entries of method, param, target per species)
 EVO_LEVEL, EVO_TRADE, EVO_TRADE_ITEM, EVO_TRADE_SPECIES, EVO_ITEM, EVO_LEVEL_WITH_PARTNER = 4, 5, 6, 7, 8, 22
 
@@ -135,4 +149,52 @@ def text_fast_default(rom):
     rom.replace_arm9(bytes(code))
 
 
-PATCHES = [identity, faster_eggs, trade_evolutions, vitamins_to_252, text_fast_default]
+TEXT_WAITS = 0x0209DFB0  # s8[5] + padding: frames per character, or characters per frame when negative
+INSTANT_WAIT = -127
+
+
+def text_instant(rom):
+    """INSTANT text speed: option value 3 (after SLOW, MID, FAST). Every printer gets its speed from the wait table
+    through one of three mappers (FUN_02012ffc: option as index; FUN_02013020: option + 1, for faster contexts;
+    FUN_02013050: 0,1,2 -> 4,0,1, for slower ones), the last two through FUN_02013080, which clamps the index to 4.
+    The table's padding byte 5 becomes the INSTANT wait, the clamps let 5 through, and every mapper sends 3 to 5.
+    The new mapper bodies were assembled with arm-none-eabi-as (source in the comments)."""
+    code = bytearray(rom.arm9())
+    a = lambda addr: addr - ARM9  # noqa: E731
+    patch(code, a(TEXT_WAITS + 5), '00', struct.pack('<b', INSTANT_WAIT).hex())
+    patch(code, a(0x0201300A), '052800d30420', '032800d30520')  # cmp r0, #3; blo; movs r0, #5 (was #5, #4)
+    patch(code, a(0x02013080), '0528', '0628')  # FUN_02013080: cmp r0, #6 (was #5)
+    # FUN_02013020: cmp r0, #3; blo 1f; movs r0, #4; 1: adds r0, #1; nop x8
+    patch(code, a(0x0201302E), '002804d0012804d0022804d004e0012002e0022000e00320',
+          '032800d304200130' + 'c046' * 8)
+    # FUN_02013050: cmp r0, #3; bhs 3f; subs r0, #1; bpl 4f; movs r0, #4; b 4f; 3: movs r0, #5; 4: nop x5
+    patch(code, a(0x0201305E), '002804d0012804d0022804d004e0042002e0002000e00120',
+          '032803d2013802d5042000e00520' + 'c046' * 5)
+    rom.replace_arm9(bytes(code))
+
+
+# --- code home --------------------------------------------------------------------------------------------------
+
+CODE_HOME = 0x023C0000  # 128 KB up to 0x023E0000, where the ARM7's part of main RAM starts
+code_syms = {}  # symbol -> address of the compiled code, for hooks
+
+
+def code_home(rom):
+    """Room for new code: gunk/code/*.c, compiled by tools/cc.py, goes in as a fifth ARM9 autoload block, which
+    crt0 copies to 0x023C0000 at boot before anything else runs. The main arena's top drops from 0x023E0000 to the
+    same address, so no heap can be made over it: OS_GetInitArenaHi (FUN_02086594) returns it for the main arena
+    from a literal it shares with another case, so the `ldreq` becomes a `moveq` with the new value. After the
+    game makes its heaps the arena's free part was 0x023B47F0-0x023E0000 (measured in the field); 46 KB of it stay
+    free."""
+    import cc
+    blob, bss, syms = cc.build()
+    assert CODE_HOME + len(blob) == syms['__bss_start'], 'gunk/code: .bss does not follow the code'
+    assert len(blob) + bss <= 0x20000, 'gunk/code: over 128 KB'
+    code = bytearray(rom.arm9())
+    patch(code, 0x020865CC - ARM9, 'a4009f05', '8f07a003')  # ldreq r0, =0x023E0000 -> moveq r0, #0x023C0000
+    rom.replace_arm9(rom.add_autoload(code, CODE_HOME, blob, bss))
+    code_syms.update(syms)
+
+
+PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
+           code_home]
