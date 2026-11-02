@@ -1,6 +1,6 @@
-/* Bag (overlay 70): using the Endless Repel switches it on or off. The bag looks items with their own USE handler
-   up in an 8-entry table (0x021BB9C4: first item, count, handler); patches.endless_repel points the bag at this
-   copy, which adds the Endless Repel as a 9th entry. */
+/* Bag (overlay 70): using the Endless Repel or the Exp. All switches it on or off. The bag looks items with their
+   own USE handler up in an 8-entry table (0x021BB9C4: first item, count, handler); patches.endless_repel points
+   the bag at this copy, which adds the two key items after the retail entries. */
 #include "repel.h"
 
 struct BagSpecial {
@@ -10,6 +10,8 @@ struct BagSpecial {
 
 #define MSG_ENDLESS_ON 140   /* added to the bag's message file (a/0/0/2 #3) by patches.endless_repel */
 #define MSG_ENDLESS_OFF 141
+#define MSG_EXP_ALL_ON 142   /* and by patches.exp_all */
+#define MSG_EXP_ALL_OFF 143
 
 #define BAG_MSGDATA 0x51C
 #define BAG_WORDSET 0x520
@@ -25,21 +27,36 @@ struct BagSpecial {
 
 #define WORD(bag, off) (*(void **)((bag) + (off)))
 
-/* the bag's USE on the Endless Repel; the message path is the one Honey's handler takes */
-s32 Gunk_Bag_EndlessRepel(u8 *bag)
+/* the message path Honey's handler takes */
+static s32 ShowMessage(u8 *bag, u32 msg)
 {
-    int on = !EndlessRepel_IsOn();
-
-    EndlessRepel_Set(on);
-    Msg_GetStringTo(WORD(bag, BAG_MSGDATA), on ? MSG_ENDLESS_ON : MSG_ENDLESS_OFF, WORD(bag, BAG_STRBUF));
+    Msg_GetStringTo(WORD(bag, BAG_MSGDATA), msg, WORD(bag, BAG_STRBUF));
     WordSet_PlayerName(WORD(bag, BAG_WORDSET), 0, WORD(bag, BAG_STATUS));
     WordSet_Expand(WORD(bag, BAG_WORDSET), WORD(bag, BAG_EXPANDED), WORD(bag, BAG_STRBUF));
     Bag_SetState(bag, BAG_STATE_SHOW_MESSAGE);
     return 0;
 }
 
-const struct BagSpecial gGunkBagSpecial[9] = {
+/* the bag's USE on the Endless Repel */
+s32 Gunk_Bag_EndlessRepel(u8 *bag)
+{
+    int on = !EndlessRepel_IsOn();
+
+    EndlessRepel_Set(on);
+    return ShowMessage(bag, on ? MSG_ENDLESS_ON : MSG_ENDLESS_OFF);
+}
+
+/* the bag's USE on the Exp. All */
+s32 Gunk_Bag_ExpAll(u8 *bag)
+{
+    int on = !ExpAll_IsOn();
+
+    ExpAll_Set(on);
+    return ShowMessage(bag, on ? MSG_EXP_ALL_ON : MSG_EXP_ALL_OFF);
+}
+
+const struct BagSpecial gGunkBagSpecial[10] = {
     { 450, 1, 0x021B6AF1 }, { 442, 1, 0x021B6BC5 }, { 437, 1, 0x021B6C31 }, { 94, 1, 0x021B6D01 },
     { 447, 1, 0x021B6D71 }, { 465, 1, 0x021B6C99 }, { 471, 1, 0x021B6DD9 }, { 78, 1, 0x021B6E4D },
-    { ITEM_ENDLESS_REPEL, 1, (u32)Gunk_Bag_EndlessRepel },
+    { ITEM_ENDLESS_REPEL, 1, (u32)Gunk_Bag_EndlessRepel }, { ITEM_EXP_ALL, 1, (u32)Gunk_Bag_ExpAll },
 };

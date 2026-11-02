@@ -4,6 +4,7 @@ Each patch checks the retail bytes it replaces, so a different base ROM fails lo
 hack. Addresses come from the pokeblack disassembly (C:\\Projects\\pokeblack-ref, squiddonaut/pokeblack), which
 assembles to the same bytes as retail.
 """
+import os
 import struct
 
 from narc import Narc
@@ -204,6 +205,14 @@ def code_home(rom):
     blob, bss, syms = cc.build()
     assert CODE_HOME + len(blob) == syms['__bss_start'], 'gunk/code: .bss does not follow the code'
     assert len(blob) + bss <= 0x20000, 'gunk/code: over 128 KB'
+    blob = bytearray(blob)
+    if 'gGunkHmCompat' in syms:  # fieldmove.c: per species, which HMs it can learn (TM/HM bits 95-100)
+        personal = Narc(rom.file(rom.file_id('a/0/1/6')))
+        at = syms['gGunkHmCompat'] - CODE_HOME
+        for sp in range(650):
+            bits = int.from_bytes(personal.file(sp)[0x28:0x38], 'little')
+            blob[at + sp] = bits >> 95 & 0x3F
+        open(os.path.join(cc.OUT, 'gunk.bin'), 'wb').write(blob)  # what the suite compares the RAM against
     code = bytearray(rom.arm9())
     patch(code, 0x020865CC - ARM9, 'a4009f05', '8f07a003')  # ldreq r0, =0x023E0000 -> moveq r0, #0x023C0000
     rom.replace_arm9(rom.add_autoload(code, CODE_HOME, blob, bss))
@@ -359,7 +368,7 @@ FANFARE_KEY_ITEM = 0x0517
 def endless_repel(rom):
     """Endless Repel: a key item (gunk/code/bag.c, repel.c) that switches on and off from the bag. While on, the
     Repel counter is set to 250 and topped up whenever it runs out (repel_prompt's script). Mom gives it right after
-    the Running Shoes."""
+    the Running Shoes, together with the Exp. All (exp_all)."""
     items = Narc(rom.file(rom.file_id('a/0/2/4')))
     data = bytearray(items.file(ITEM_REPEL))
     struct.pack_into('<H', data, 0, 0)  # no price
@@ -391,18 +400,24 @@ def endless_repel(rom):
     table = code_syms['gGunkBagSpecial']
     patch(code, 0x021B6EF4 - base, struct.pack('<I', 0x021BB9C4).hex(), struct.pack('<I', table).hex())
     patch(code, 0x021B710C - base, struct.pack('<I', 0x021BB9C8).hex(), struct.pack('<I', table + 4).hex())
-    patch(code, 0x021B6EE8 - base, '082d', '092d')  # cmp r5, #8 -> #9 entries
+    patch(code, 0x021B6EE8 - base, '082d', '0a2d')  # cmp r5, #8 -> #10: the Endless Repel and the Exp. All
     rom.replace_overlay(70, bytes(code))
 
     # Mom: after explaining the Running Shoes (message 6), she gives the Endless Repel
     def gift_text(texts):
-        received = [c for c in texts[4][0]]
+        received = [c for c in texts[4][0]]  # "<player> received a pair of\n<Running Shoes>!"
+        pair = text5.chars('a pair of')
+        at = next(i for i in range(len(received)) if received[i:i + len(pair)] == pair)
+        received = received[:at] + text5.chars('the') + received[at + len(pair):]
         shoes = text5.chars('Running Shoes')
         at = next(i for i in range(len(received)) if received[i:i + len(shoes)] == shoes)
         texts += [(received[:at] + text5.chars('Endless Repel') + received[at + len(shoes):], texts[4][1]),
                   (text5.chars('And this keeps weak wild Pokémon away.\nSwitch it on or off from the Key Items!'),
+                   texts[MSG_SHOES_EXPLAINED][1]),
+                  (received[:at] + text5.chars('Exp. All') + received[at + len(shoes):], texts[4][1]),
+                  (text5.chars('With that on, your whole team learns\nfrom every battle, even from the bench!'),
                    texts[MSG_SHOES_EXPLAINED][1])]
-        return len(texts) - 2
+        return len(texts) - 4
     msg = {}
     _edit_text(rom, 'a/0/0/3', TEXT_RUNNING_SHOES, lambda t: msg.setdefault('recv', gift_text(t)))
 
@@ -417,6 +432,9 @@ def endless_repel(rom):
                    (OP_ADD_ITEM, ITEM_ENDLESS_REPEL, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
                    (S.OP_MESSAGE, msg['recv'], 2), (OP_FANFARE_WAIT,), (S.OP_CLOSE,),
                    (0x3C, ('u8', 0), ('u8', 4), msg['recv'] + 1, 0xFB, 0, 0),
+                   (OP_ADD_ITEM, ITEM_EXP_ALL, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
+                   (S.OP_MESSAGE, msg['recv'] + 2, 2), (OP_FANFARE_WAIT,), (S.OP_CLOSE,),
+                   (0x3C, ('u8', 0), ('u8', 4), msg['recv'] + 3, 0xFB, 0, 0),
                    (0x3E,), (S.OP_JUMP, ('to', hook + 14))]
         code = S.assemble(at, program)
         assert code[:12] == explained
@@ -426,6 +444,65 @@ def endless_repel(rom):
     _edit_script(rom, SCRIPT_RUNNING_SHOES, script)
 
 
+ITEM_EXP_ALL = 427  # the other unused slot next to the key items
+OVL_BATTLE = 93  # the battle server, at 0x021B6100
+
+
+def _key_item(rom, item, name, plural, article, desc):
+    """An unused item slot becomes a key item that the bag can USE (Repel's data, no price, key pocket)."""
+    items = Narc(rom.file(rom.file_id('a/0/2/4')))
+    data = bytearray(items.file(ITEM_REPEL))
+    struct.pack_into('<H', data, 0, 0)
+    flags = struct.unpack_from('<H', data, 8)[0]
+    struct.pack_into('<H', data, 8, flags & ~(0xF << 7) | POCKET_KEY << 7)
+    assert items.file(item)[:4] == bytes(4)
+    items.set_file(item, bytes(data))
+    rom.replace_file(rom.file_id('a/0/2/4'), items.save())
+
+    def text(fid, chars):
+        def edit(texts):
+            assert text5.to_str(texts[item][0]) in ('???', '')
+            texts[item] = (chars, texts[item][1])
+        _edit_text(rom, 'a/0/0/2', fid, edit)
+    text(54, text5.chars(name))
+    text(280, text5.chars(plural))
+    text(279, [0xF000, 0xBD01, 0x0] + text5.chars(article + ' ') + [0xF000, 0xFF00, 0x1, 0xFF] + text5.chars(name))
+    text(53, text5.chars(desc))
+    return data
+
+
+def exp_all(rom):
+    """Exp. All: a key item (gunk/code/expall.c) that switches on and off from the bag. While on, party members that
+    didn't battle get half a participant's EXP (and the EVs with it). The battle server's EXP routine
+    (FUN_overlay_d_93__021cb2d4) calls Gunk_ExpAll_Hook between handing out the shares and scaling them by level.
+    Mom gives it with the Endless Repel."""
+    _key_item(rom, ITEM_EXP_ALL, 'Exp. All', 'Exp. Alls', 'an',
+              "While it is on, Pokémon that didn't battle\nstill get half the Exp. Points. Use it to switch.")
+
+    def bag_text(texts):
+        assert len(texts) == 142
+        texts += [(text5.chars('The Exp. All is now on.'), texts[63][1]),
+                  (text5.chars('The Exp. All is now off.'), texts[63][1])]
+    _edit_text(rom, 'a/0/0/2', 3, bag_text)
+
+    code = bytearray(rom.overlay(OVL_BATTLE))
+    base = rom.overlay_base(OVL_BATTLE)
+    hook = 0x021CB464
+    patch(code, hook - base, '07980026', thumb_bl(hook, code_syms['Gunk_ExpAll_Hook']))  # ldr r0, [sp, #0x1c]; movs r6, #0
+    rom.replace_overlay(OVL_BATTLE, bytes(code))
+
+
+def field_moves(rom):
+    """HM moves without the move (gunk/code/fieldmove.c): FUN_overlay_d_10__0215b500, the "does this Pokémon know
+    this move" test behind the field-move script commands (0x116 and its sibling) and the field's own check, now
+    also says yes when the bag holds that HM and the species can learn it. Badges are still checked by the
+    scripts."""
+    code = bytearray(rom.overlay(OVL_SCRIPT))
+    base = rom.overlay_base(OVL_SCRIPT)
+    patch(code, 0x0215B500 - base, '70b50c1c4c210022', thumb_jump(code_syms['Gunk_KnowsFieldMove']))
+    rom.replace_overlay(OVL_SCRIPT, bytes(code))
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
-           endless_repel]
+           endless_repel, exp_all, field_moves]
