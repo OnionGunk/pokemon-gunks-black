@@ -38,7 +38,7 @@ class Rom:
         self.ovt_off, ovt_size = struct.unpack_from('<II', self.data, 0x50)
         self.novl = ovt_size // 32
         self.banner_off = struct.unpack_from('<I', self.data, 0x68)[0]
-        self.free = FREE_START
+        self.holes = [[FREE_START, FREE_END]]  # free ROM space: the digest tables, then slots files moved out of
         self._names = None
 
     # files ---------------------------------------------------------------------------------
@@ -68,18 +68,36 @@ class Rom:
         return min(nxt, (end + ALIGN - 1) & ~(ALIGN - 1))
 
     def _alloc(self, size):
-        start = self.free
-        self.free = (start + size + ALIGN - 1) & ~(ALIGN - 1)
-        if self.free > FREE_END:
-            raise ValueError('ROM full')
+        """Best fit among the holes (smallest that is big enough)."""
+        fits = [h for h in self.holes if h[1] - h[0] >= size]
+        if not fits:
+            raise ValueError(f'ROM full: need {size:#x}, holes {[(hex(a), hex(b - a)) for a, b in self.holes]}')
+        hole = min(fits, key=lambda h: h[1] - h[0])
+        start = hole[0]
+        hole[0] = min((start + size + ALIGN - 1) & ~(ALIGN - 1), hole[1])
         return start
+
+    def _release(self, start, end):
+        """A slot a file moved out of becomes free space (it is inside the DS-mode readable area); neighbouring
+        holes merge."""
+        self.data[start:end] = b'\xFF' * (end - start)
+        self.holes.append([start, end])
+        self.holes.sort()
+        merged = [self.holes[0]]
+        for h in self.holes[1:]:
+            if h[0] <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], h[1])
+            else:
+                merged.append(h)
+        self.holes = [h for h in merged if h[1] > h[0]]
 
     def replace_file(self, fid, new):
         start, end = self.file_range(fid)
-        if start + len(new) <= self._slot_end(fid):
-            self.data[start:self._slot_end(fid)] = b'\xFF' * (self._slot_end(fid) - start)
-        else:
-            self.data[start:end] = b'\xFF' * (end - start)
+        slot = self._slot_end(fid)
+        if start + len(new) <= slot:
+            self.data[start:slot] = b'\xFF' * (slot - start)
+        else:  # free the slot first, so it can merge with free space next to it and be reused
+            self._release(start, slot)
             start = self._alloc(len(new))
         self.data[start:start + len(new)] = new
         struct.pack_into('<II', self.data, self.fat_off + fid * 8, start, start + len(new))
@@ -87,7 +105,7 @@ class Rom:
     def _move_file(self, fid):
         start, end = self.file_range(fid)
         body = self.file(fid)
-        self.data[start:end] = b'\xFF' * (end - start)
+        self._release(start, self._slot_end(fid))
         new = self._alloc(len(body))
         self.data[new:new + len(body)] = body
         struct.pack_into('<II', self.data, self.fat_off + fid * 8, new, new + len(body))

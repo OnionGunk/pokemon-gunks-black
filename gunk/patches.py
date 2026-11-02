@@ -307,13 +307,16 @@ def _edit_script(rom, fid, edit):
 SCRIPT_FIELD_COMMON, TEXT_FIELD_COMMON = 872, 263  # Repel, Sweet Scent, fishing, Entralink
 MSG_REPEL_WORE_OFF, MSG_REPEL_AGAIN = 0, 13
 ITEM_SUPER_REPEL, ITEM_MAX_REPEL, ITEM_REPEL = 76, 77, 79
+ENDLESS_REPEL_STEPS = 250
 VAR_A, VAR_B = 0x8020, 0x8021  # temporary script variables
+GUNK_SET_REPEL, GUNK_ENDLESS_REPEL = 0, 1  # gunk/code/script.c sub-commands
 
 
 def repel_prompt(rom):
     """When a Repel wears off and the bag has another, ask to use one (the cheapest the bag has: Repel, then Super,
     then Max). Script 872 entry 0 is the wore-off message; it now starts at new code appended to the file, which
-    falls back to the retail message when the bag has none."""
+    falls back to the retail message when the bag has none. With the Endless Repel on, the counter is quietly
+    topped up instead."""
     def text(items):
         assert text5.to_str(items[MSG_REPEL_WORE_OFF][0]) == "Repel's effect wore off..." and len(items) == MSG_REPEL_AGAIN
         items.append((text5.chars("Repel's effect wore off...\nUse another Repel?"), items[MSG_REPEL_WORE_OFF][1]))
@@ -324,7 +327,9 @@ def repel_prompt(rom):
     def script(sf):
         retail = S.entries(sf.data)[0]
         assert sf.data[retail:retail + 8] == bytes.fromhex('2e00340000000200')  # lock; message 0, plain
-        program = [(S.OP_LOCK,)]
+        program = [(S.OP_LOCK,),
+                   (S.OP_GUNK, GUNK_ENDLESS_REPEL, 0, VAR_A), (S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, 0),
+                   (S.OP_COMPARE, 1), (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', 'endless'))]
         for item, label in ((ITEM_REPEL, 'repel'), (ITEM_SUPER_REPEL, 'super'), (ITEM_MAX_REPEL, 'max')):
             program += [(S.OP_CHECK_ITEM, item, 1, VAR_A), (S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, 0),
                         (S.OP_COMPARE, 1), (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', label))]
@@ -335,12 +340,92 @@ def repel_prompt(rom):
                     (S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, 1), (S.OP_COMPARE, 1),
                     (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', 'yes')),  # YES is 0
                     (S.OP_CLOSE,), (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,),
-                    'yes', (S.OP_TAKE_ITEM, VAR_B, 1, VAR_A), (S.OP_GUNK, 0, VAR_B),
-                    (S.OP_CLOSE,), (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
+                    'yes', (S.OP_TAKE_ITEM, VAR_B, 1, VAR_A), (S.OP_GUNK, GUNK_SET_REPEL, VAR_B, VAR_A),
+                    (S.OP_CLOSE,), (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,),
+                    'endless', (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]  # topped up, nothing shown
         at = len(sf.data) + len(sf.data) % 2
         sf.set_entry(0, sf.append(S.assemble(at, program)))
     _edit_script(rom, SCRIPT_FIELD_COMMON, script)
 
 
+ITEM_ENDLESS_REPEL = 426  # an unused slot ("???") next to the key items
+POCKET_KEY = 4
+SCRIPT_RUNNING_SHOES, TEXT_RUNNING_SHOES = 638, 351  # zone 319: Mom's Running Shoes scene
+MSG_SHOES_EXPLAINED = 6
+OP_FANFARE, OP_FANFARE_WAIT, OP_ADD_ITEM = 0xA9, 0xAA, 0xB5
+FANFARE_KEY_ITEM = 0x0517
+
+
+def endless_repel(rom):
+    """Endless Repel: a key item (gunk/code/bag.c, repel.c) that switches on and off from the bag. While on, the
+    Repel counter is set to 250 and topped up whenever it runs out (repel_prompt's script). Mom gives it right after
+    the Running Shoes."""
+    items = Narc(rom.file(rom.file_id('a/0/2/4')))
+    data = bytearray(items.file(ITEM_REPEL))
+    struct.pack_into('<H', data, 0, 0)  # no price
+    data[3] = ENDLESS_REPEL_STEPS
+    flags = struct.unpack_from('<H', data, 8)[0]
+    struct.pack_into('<H', data, 8, flags & ~(0xF << 7) | POCKET_KEY << 7)
+    assert items.file(ITEM_ENDLESS_REPEL)[:4] == bytes(4)
+    items.set_file(ITEM_ENDLESS_REPEL, bytes(data))
+    rom.replace_file(rom.file_id('a/0/2/4'), items.save())
+
+    def name(fid, text):
+        def edit(texts):
+            assert text5.to_str(texts[ITEM_ENDLESS_REPEL][0]) in ('???', '')
+            texts[ITEM_ENDLESS_REPEL] = (text, texts[ITEM_ENDLESS_REPEL][1])
+        _edit_text(rom, 'a/0/0/2', fid, edit)
+    name(54, text5.chars('Endless Repel'))
+    name(280, text5.chars('Endless Repels'))
+    name(279, [0xF000, 0xBD01, 0x0] + text5.chars('an ') + [0xF000, 0xFF00, 0x1, 0xFF] + text5.chars('Endless Repel'))
+    name(53, text5.chars('Keeps weak wild Pokémon away for as long\nas it is on. Use it to switch it on or off.'))
+
+    def bag_text(texts):
+        assert len(texts) == 140
+        texts += [(text5.chars('The Endless Repel is now on.'), texts[63][1]),
+                  (text5.chars('The Endless Repel is now off.'), texts[63][1])]
+    _edit_text(rom, 'a/0/0/2', 3, bag_text)
+
+    code = bytearray(rom.overlay(70))
+    base = rom.overlay_base(70)
+    table = code_syms['gGunkBagSpecial']
+    patch(code, 0x021B6EF4 - base, struct.pack('<I', 0x021BB9C4).hex(), struct.pack('<I', table).hex())
+    patch(code, 0x021B710C - base, struct.pack('<I', 0x021BB9C8).hex(), struct.pack('<I', table + 4).hex())
+    patch(code, 0x021B6EE8 - base, '082d', '092d')  # cmp r5, #8 -> #9 entries
+    rom.replace_overlay(70, bytes(code))
+
+    # Mom: after explaining the Running Shoes (message 6), she gives the Endless Repel
+    def gift_text(texts):
+        received = [c for c in texts[4][0]]
+        shoes = text5.chars('Running Shoes')
+        at = next(i for i in range(len(received)) if received[i:i + len(shoes)] == shoes)
+        texts += [(received[:at] + text5.chars('Endless Repel') + received[at + len(shoes):], texts[4][1]),
+                  (text5.chars('And this keeps weak wild Pokémon away.\nSwitch it on or off from the Key Items!'),
+                   texts[MSG_SHOES_EXPLAINED][1])]
+        return len(texts) - 2
+    msg = {}
+    _edit_text(rom, 'a/0/0/3', TEXT_RUNNING_SHOES, lambda t: msg.setdefault('recv', gift_text(t)))
+
+    S = script5
+
+    def script(sf):
+        hook = 0x510  # message 6, then 0x3E (14 bytes) at the end of the Running Shoes scene
+        assert sf.data[hook:hook + 14] == bytes.fromhex('3c0000040600fb0000000000' + '3e00')
+        explained = bytes(sf.data[hook:hook + 12])
+        at = len(sf.data) + len(sf.data) % 2
+        program = [(0x3C, ('u8', 0), ('u8', 4), MSG_SHOES_EXPLAINED, 0xFB, 0, 0),
+                   (OP_ADD_ITEM, ITEM_ENDLESS_REPEL, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
+                   (S.OP_MESSAGE, msg['recv'], 2), (OP_FANFARE_WAIT,), (S.OP_CLOSE,),
+                   (0x3C, ('u8', 0), ('u8', 4), msg['recv'] + 1, 0xFB, 0, 0),
+                   (0x3E,), (S.OP_JUMP, ('to', hook + 14))]
+        code = S.assemble(at, program)
+        assert code[:12] == explained
+        new = sf.append(code)
+        assert new == at
+        sf.data[hook:hook + 6] = S.jump_to(hook, at)
+    _edit_script(rom, SCRIPT_RUNNING_SHOES, script)
+
+
 PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt]
+           code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
+           endless_repel]
