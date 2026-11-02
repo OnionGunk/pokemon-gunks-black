@@ -216,6 +216,11 @@ class Game:
     def u32(self, addr):
         return struct.unpack('<I', self.read(addr, 4))[0]
 
+    def poke(self, addr, data):
+        path = os.path.join(OUT, '_poke.bin')
+        open(path, 'wb').write(data)
+        self.run(f'poke {BUS} {addr} {path.replace(os.sep, "/")}')
+
     def dump(self, addr, length, path):
         self.run(f'dump {BUS} {addr} {length} {path.replace(os.sep, "/")}')
         return open(path, 'rb').read()

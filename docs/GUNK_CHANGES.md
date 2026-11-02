@@ -64,13 +64,13 @@ in-game · ⏳ planned · — skipped.
 | 25 | Move Tutor in every Pokémon Center (e8f1b80d) | adapt | Black's Move Relearner is in Mistralton City (Heart Scale). Add a free relearner/deleter NPC to the Pokémon Center layout (Black's Centers share a script set). | ⏳ |
 | 26 | Summary: A on Skills cycles stats / IVs / EVs (2957e59d) | port | Black's summary shows no IVs/EVs. New code in the summary overlay. | ⏳ |
 | 27 | Exp. All key item: half EXP and EVs to party members that didn't battle (2957e59d) | port | Black's Exp. Share is the Gen 4 held item (split EXP with the holder). There's no party-wide option, despite what the brief assumed (that arrived in Gen 6). Battle EXP code + a key item toggle. | ⏳ |
-| 28 | Vitamins up to 252 EVs (2957e59d) | port | `vitamins_to_252`: overlay 91's can-use test (`FUN_overlay_d_91__021bdd78`, one "EV < 100" per stat) and its EV calculation (`021be948`, clamp to 100) now use 252. The 510 total and the wings' 255 stay. | 🟡 |
+| 28 | Vitamins up to 252 EVs (2957e59d) | port | `vitamins_to_252`: overlay 91's can-use test (`FUN_overlay_d_91__021bdd78`, one "EV < 100" per stat) and its EV calculation (`021be948`, clamp to 100) now use 252. The 510 total and the wings' 255 stay. | ✅ |
 | 29 | Bag: Start sorts the open pocket (2957e59d) | port | Black lets you drag items around on the touch screen, but has no automatic sort. | ⏳ |
 | 30 | Two registered items: Y and Select (2957e59d) | skip: Black has it | Black registers any number of items to Y; with more than one, Y opens a chooser. | — |
 | 31 | Honey tree timer (2957e59d) | skip | No honey trees in Black. | — |
 | 32 | Poké Radar chain length (2957e59d) | skip | No Poké Radar in Black. | — |
-| 33 | Eggs hatch twice as fast (2957e59d) | port | `faster_eggs`: Black's `Party_GetEggCyclesToSubtract` (overlay 21, 0x0218AA2C) returns 2/1, patched to 4/2. | 🟡 |
-| 34 | Trade evolutions by level; trade items used like stones (2957e59d) | port | `trade_evolutions`: Kadabra 36; Machoke, Graveler, Haunter 37; Gen 5's **Boldore and Gurdurr 37**. **Karrablast/Shelmet** (trade for each other) level up with the other one in the party (Gen 5's Mantyke-style method 22). Every trade-with-item species also evolves by using the item (method 8), and those 11 items get the evolution stones' use settings. Trading still works. | 🟡 |
+| 33 | Eggs hatch twice as fast (2957e59d) | port | `faster_eggs`: Black's `Party_GetEggCyclesToSubtract` (overlay 21, 0x0218AA2C) returns 2/1, patched to 4/2. | ✅ |
+| 34 | Trade evolutions by level; trade items used like stones (2957e59d) | port | `trade_evolutions`: Kadabra 36; Machoke, Graveler, Haunter 37; Gen 5's **Boldore and Gurdurr 37**. **Karrablast/Shelmet** (trade for each other) level up with the other one in the party (Gen 5's Mantyke-style method 22). Every trade-with-item species also evolves by using the item (method 8), and those 11 items get the evolution stones' use settings. Trading still works. | ✅ |
 | 35 | UNLOCK FPS option (211b80ef) | skip (ask) | Came with the follower port, not a request. | — |
 
 ## Test infrastructure
@@ -141,5 +141,19 @@ previous save (cut before about +330) or the new one (cut after). The next save 
 The first Gunk's build hung on a white screen entering the field. Overlay 21 had been moved past the DSi region,
 which a DS-mode cart can't read. Fixed in 34e21de; see TOOLCHAIN.md.
 
-Not yet exercised in the emulator: egg hatching speed, trade-evolution levels and items, and vitamins past 100
-(plan step 1). The DS menu banner text hasn't been checked on a DS menu either.
+### Features in the game (Gunk's Black, 2026-11-02)
+
+The Pokémon and items were set up in RAM, through `emu/suite/pk5.py` and the live save buffer at 0x0221BBAC: the
+party is at +0x18E00 and the bag at +0x18400, with the Medicine pocket at +0x7D8. Everything else used the real
+game UI (bag, party menu, evolution scenes).
+
+- **Vitamins:** HP EVs set to 100, then HP Ups from the bag. "Tepig's base HP rose!" took it to 110, and on up to
+  exactly 252 (16 used). The next one: "It won't have any effect."
+- **Trade item as a stone:** a Metal Coat on an Onix showed ABLE! in the party menu and evolved it into Steelix
+  (the coat was used up). A Metal Coat on a Kadabra showed UNABLE!.
+- **Trade evolution by level:** a Kadabra at level 35 plus a Rare Candy reached level 36 and evolved into Alakazam.
+- **Eggs:** an egg with 10 cycles left had 8 left after about 300 steps, one 256-step boundary. Retail drops 1
+  per boundary.
+
+Not checked yet: Karrablast/Shelmet (they use the game's own Mantyke method), Boldore/Gurdurr levels, and the DS
+menu banner text on a real DS menu.
