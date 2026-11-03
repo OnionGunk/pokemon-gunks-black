@@ -530,7 +530,7 @@ def exp_all(rom):
     (FUN_overlay_d_93__021cb2d4) calls Gunk_ExpAll_Hook between handing out the shares and scaling them by level.
     Mom gives it with the Endless Repel."""
     _key_item(rom, ITEM_EXP_ALL, 'Exp. All', 'Exp. Alls', 'an',
-              "While it is on, Pokémon that didn't battle\nstill get half the Exp. Points. Use it to switch.")
+              "While it is on, Pokémon that didn't battle\nget half Exp. Points. Use it to switch.")
 
     def bag_text(texts):
         assert len(texts) == 142
@@ -543,6 +543,32 @@ def exp_all(rom):
     hook = 0x021CB464
     patch(code, hook - base, '07980026', thumb_bl(hook, code_syms['Gunk_ExpAll_Hook']))  # ldr r0, [sp, #0x1c]; movs r6, #0
     rom.replace_overlay(OVL_BATTLE, bytes(code))
+
+
+ITEM_ICONS = 0x0209EB6C  # per item: u16 tiles, u16 palette, files in a/0/2/5
+ITEM_REPEL = 79
+ITEM_EXP_SHARE = 216
+
+
+def item_icons(rom):
+    """Icons for the new key items (the "?" until now): the Endless Repel is Black's Repel can (its tiles, a copy of
+    its palette added to a/0/2/5) in black with a gold ball, the Exp. All the Exp. Share's icon. Before code_home,
+    which adds the code block to the ARM9 binary."""
+    narc = Narc(rom.file(rom.file_id('a/0/2/5')))
+    code = bytearray(rom.arm9())
+    tiles, pal_file = struct.unpack_from('<HH', code, ITEM_ICONS - ARM9 + ITEM_REPEL * 4)
+    pal = bytearray(narc.file(pal_file))
+    at = pal.find(b'TTLP') + 0x18
+    rgb15 = lambda r, g, b: r >> 3 | g >> 3 << 5 | b >> 3 << 10
+    for i, colour in ((8, (248, 200, 48)), (9, (176, 120, 16)),  # the ball on the label: gold
+                      (13, (72, 64, 80)), (14, (32, 24, 40)), (15, (128, 120, 144))):  # the can: black
+        struct.pack_into('<H', pal, at + i * 2, rgb15(*colour))
+    endless = narc.add_files([bytes(pal)])
+    rom.replace_file(rom.file_id('a/0/2/5'), narc.save())
+    for item, icon in ((ITEM_ENDLESS_REPEL, (tiles, endless)),
+                       (ITEM_EXP_ALL, struct.unpack_from('<HH', code, ITEM_ICONS - ARM9 + ITEM_EXP_SHARE * 4))):
+        patch(code, ITEM_ICONS - ARM9 + item * 4, 'e903ea03', struct.pack('<HH', *icon).hex())  # retail: the "?"
+    rom.replace_arm9(bytes(code))
 
 
 OVL_PARTY = OVL_ITEM_USE  # the party menu (the same overlay as its item use)
@@ -741,7 +767,7 @@ def followers(rom):
     rom.replace_overlay(OVL_MAP_CHANGE, bytes(code))
 
 
-PATCHES = [identity, title_logo, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
+PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
            dexnav, followers]

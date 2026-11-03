@@ -50,6 +50,7 @@ struct EncRecord {           /* what the slot pick fills in, 20 bytes each */
 #define Encount_RollPid ((u32 (*)(u8 *, void *, struct EncRecord *))(0x021A9D30 | 1))
 #define Encount_CreateMon ((void (*)(void *, void *, struct EncRecord *))(0x021A96B8 | 1))
 #define PP_Put ((void (*)(void *, u32, u32))(0x02017E40 | 1))
+#define PP_CalcStats ((void (*)(void *))(0x02018A7C | 1))  /* stats (and HP) from level, IVs, EVs, nature */
 #define Key_GetTrg ((u32 (*)(void))0x020362DC)
 #define Key_GetCont ((u32 (*)(void))0x0203630C)
 #define SaveData_GetBlock ((u8 *(*)(void *, u32))(0x020071CC | 1))
@@ -210,6 +211,8 @@ void Gunk_DexNav_Create(void *pp, void *params, struct EncRecord *rec)
     if (!sTarget || rec->species != sTarget)
         return;
     perfect = sChain >= 30 ? 3 : sChain >= 20 ? 2 : sChain >= 10 ? 1 : 0;
+    if (!perfect)
+        return;
     while (perfect) {
         u32 stat = Random() & 7;
 
@@ -219,4 +222,5 @@ void Gunk_DexNav_Create(void *pp, void *params, struct EncRecord *rec)
         PP_Put(pp, PARAM_IV_HP + stat, IV_MAX);
         perfect--;
     }
+    PP_CalcStats(pp);  /* the game worked the stats out from the old IVs */
 }
