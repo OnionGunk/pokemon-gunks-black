@@ -642,6 +642,12 @@ def field_moves(rom):
     label = thumb_bl(0x021BBDAC, code_syms['Gunk_PartyEntryMove'])
     patch(code, 0x021BBDAC - base, thumb_bl(0x021BBDAC, 0x02017E1C), label)
     rom.replace_overlay(OVL_PARTY, bytes(code))
+    # the field's water checks (A facing water: Surf; at a waterfall: Waterfall) find the Pokémon themselves
+    code = bytearray(rom.overlay(OVL_FIELD))
+    base = rom.overlay_base(OVL_FIELD)
+    for site in (0x0218B028, 0x0218B5F2):  # bl FUN_overlay_d_21__0218b630 (Waterfall, Surf)
+        patch(code, site - base, thumb_bl(site, 0x0218B630), thumb_bl(site, code_syms['Gunk_PartyWithMove']))
+    rom.replace_overlay(OVL_FIELD, bytes(code))
 
 
 POKEMON_CENTERS = [1, 8, 20, 41, 65, 99, 109, 115, 122, 146, 398, 407, 413, 425]  # zones (nurse: script 2100)

@@ -105,3 +105,22 @@ u32 Gunk_PartyFieldSkill(void *pp, u32 slot)
         listed += ListsHm(pp, i);
     return listed < MENU_FIELD_MOVES_MAX ? sHmSkills[hm] : 0;
 }
+
+/* The field's own "who knows this move" for the water (FUN_overlay_d_21__0218b630: Surf when the player faces water
+   and presses A, Waterfall at a waterfall) reads the moves itself. Gunk_PartyWithMove replaces it: the first party
+   Pokémon that knows the move or can use it through the HM in the bag, 6 for none. */
+#define Party_Get ((void *(*)(void *))(0x02012934 | 1))       /* from the game data */
+#define Party_Count ((u32 (*)(void *))(0x0201AA18 | 1))
+#define Party_Mon ((void *(*)(void *, u32))(0x0201AB28 | 1))
+#define PARTY_NONE 6
+
+u32 Gunk_PartyWithMove(void *gameData, u16 move)
+{
+    void *party = Party_Get(gameData);
+    u32 i, n = Party_Count(party);
+
+    for (i = 0; i < n; i++)
+        if (Gunk_KnowsFieldMove(Party_Mon(party, i), move))
+            return i;
+    return PARTY_NONE;
+}

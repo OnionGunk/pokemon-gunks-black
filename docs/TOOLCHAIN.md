@@ -50,6 +50,7 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
 - `gunk/patches.py`: the hack, one function per change.
 - `gunk/code/`: C for the code home, built by `tools/cc.py`.
 - `tools/text5.py`: Gen 5 message files (read, write, encrypt). `tools/narc.py` can resize a file in a NARC or append files.
+- `tools/mapdata.py`: the outdoor world's matrix and each tile's height and behaviour (finds test spots, e.g. `surf`).
 - `tools/followers5.py`: converts the Gen 5 follower sheets (Pokémon Essentials format) into `gunk/followers`.
 - `tools/btx0.py`: reads NSBTX texture and palette lists (the overworld sprites in a/0/4/9).
 - `tools/script5.py`: field scripts (a/0/5/7): command sizes worked out from the interpreter's handlers, entry
