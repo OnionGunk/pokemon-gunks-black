@@ -110,6 +110,8 @@ static void Cycle(int step)
     sBall = balls[i < 0 ? n - 1 : i >= n ? 0 : i];
 }
 
+static void ShowPrompt(void);
+
 u32 Gunk_BattleTouch(void **rects, u8 *view)
 {
     u32 hit = TouchPanel_Hit(*rects);
@@ -128,6 +130,7 @@ u32 Gunk_BattleTouch(void **rects, u8 *view)
         if (trg & (PAD_LEFT | PAD_RIGHT)) {
             Cycle(trg & PAD_LEFT ? -1 : 1);
             sPicked = 1;
+            ShowPrompt();
         }
         return hit;
     }
@@ -181,6 +184,11 @@ void Gunk_TouchUpdate(u8 *ui)
 #define MSG_WHAT_WILL_PLAYER 0x46
 #define MSG_WHAT_WILL_BALL 200
 #define COUNT_MAX 99
+#define BtlView_PrintStr ((void (*)(void *, void *))(0x021EA65C | 1))  /* as the client does after building it */
+#define CLIENT_VIEW 0x54
+
+static void **sPromptClient;  /* the last prompt built, so a new ball can show at once */
+static void *sPromptMon, *sPromptParam;
 
 static u32 BallCount(u16 item)
 {
@@ -198,6 +206,10 @@ void Gunk_ActionPrompt(void **client, void *mon, void *param)
     u32 competitor = BtlMain_Competitor(*client);
     u32 count;
 
+    sPromptClient = client;
+    sPromptMon = mon;
+    sPromptParam = param;
+
     if (competitor == COMPETITOR_LINK) {
         BtlStr_Setup(param, STR_STANDARD, MSG_WHAT_WILL_PLAYER);
         BtlStr_AddArg(param, ((u8 *)client)[CLIENT_PLAYER]);
@@ -212,4 +224,13 @@ void Gunk_ActionPrompt(void **client, void *mon, void *param)
         BtlStr_AddArg(param, BattleMon_GetBattleSlot(mon));
     }
     BtlStr_Finish(param, 0);
+}
+
+/* the prompt again, with the ball just picked */
+static void ShowPrompt(void)
+{
+    if (!sPromptClient)
+        return;
+    Gunk_ActionPrompt(sPromptClient, sPromptMon, sPromptParam);
+    BtlView_PrintStr(((void **)sPromptClient)[CLIENT_VIEW / 4], sPromptParam);
 }
