@@ -1,6 +1,7 @@
 /* DexNav: R in tall grass searches for one Pokémon of this route and meets it right away. The target is the first
    species of the route you haven't caught; it stays the target until you switch with L+R (the next species of the
-   route). Searching for the same species again and again builds a chain: each link rerolls the personality value
+   route). Searching for the same species again and again builds a chain (a wild encounter with another species
+   ends it; one with the chain's species keeps it): each link rerolls the personality value
    once more for a shiny (up to 40), and chains of 10, 20 and 30 give 1, 2 and 3 perfect IVs. Encounters stay
    legal: one of the target's grass slots (with the slots' own odds, as each has its own level) is made into the
    encounter by the game's own code (level from the slot's range,
@@ -235,8 +236,14 @@ void Gunk_DexNav_Create(void *pp, void *params, struct EncRecord *rec)
     int perfect, set = 0;
 
     Encount_CreateMon(pp, params, rec);
-    if (!sTarget || rec->species != sTarget)
+    if (!sTarget || rec->species != sTarget) {
+        /* any other wild encounter: one of the chain's species keeps the chain, any other species ends it */
+        if (rec->species != sChainSpecies) {
+            sChain = 0;
+            sChainSpecies = 0;
+        }
         return;
+    }
     perfect = sChain >= 30 ? 3 : sChain >= 20 ? 2 : sChain >= 10 ? 1 : 0;
     if (!perfect)
         return;
