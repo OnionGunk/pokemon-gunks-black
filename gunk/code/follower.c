@@ -6,9 +6,10 @@
    follower, and it goes back in its ball while the player cycles or surfs.
    - Gunk_LoadZoneObjects wraps the field's loading of a zone's objects when the player crosses into another
      zone (FUN_overlay_d_21__021894e0), Gunk_LoadWarpObjects the loading after a warp (FUN_overlay_d_20__021858e4,
-     doors, stairs, Fly): both put the follower in, on the player's tile.
-   - Follower_Frame runs with the field's per-frame input (field.c): it adds the follower if it is missing (a
-     save from before) and swaps the sprite when the lead changes. */
+     doors, stairs, Fly). A zone crossing keeps the follower (in the new zone); a warp takes it back in its ball.
+   - Follower_Frame runs with the field's per-frame input (field.c): it swaps the sprite when the lead changes, and
+     when the follower is missing (after a warp, a save from before, getting off the bike) it comes out on the tile
+     the player is stepping off, so it never stands on the player. */
 #include "follower.h"
 
 #define FOLLOWER_ID 0xF5
@@ -17,6 +18,8 @@
 
 #define MMDL_ZONE 0x0A       /* u16 */
 #define MMDL_CODE 0x0C       /* u16 */
+#define MMDL_OLD_GRID_X 0x36 /* s16: the tile it is stepping off (its own tile when it stands, stale after a load) */
+#define MMDL_OLD_GRID_Z 0x3A
 #define FIELD_GAMEDATA 0x08
 #define FIELD_MMDLSYS 0x38
 #define GAMEDATA_MMDLSYS 0x1A8
@@ -98,23 +101,34 @@ static int OnFoot(u8 *player)
            code != CODE_HEROINE_SWIM;
 }
 
-/* make the follower match the lead: remove it if it is wrong, add it on the player's tile if it is missing. It
-   belongs to the current zone, so the field doesn't clear it away with the last zone's objects. */
+/* make the follower match the lead: a new lead's follower takes the old one's place; a missing one comes out on the
+   tile the player is stepping off (none while the player stands). It belongs to the current zone, so the field
+   doesn't clear it away with the last zone's objects. */
 static void Refresh(void *mmdlSys, u32 zone)
 {
     u8 *follower = MMdlSys_Search(mmdlSys, FOLLOWER_ID);
     u8 *player = MMdlSys_Player(mmdlSys);
     u16 code = player && OnFoot(player) ? sLeadCode : 0;
+    s32 x = 0, z = 0;
 
-    if (follower && *(u16 *)(follower + MMDL_CODE) != code) {
-        MMdl_Delete(follower);
-        follower = 0;
-    }
-    if (follower)
+    if (follower && *(u16 *)(follower + MMDL_CODE) == code) {
         *(u16 *)(follower + MMDL_ZONE) = zone;
-    else if (code && player)
-        MMdlSys_AddParam(mmdlSys, MMdl_GridX(player), MMdl_GridZ(player), DIR_DOWN, FOLLOWER_ID, code, MOVE_PAIR,
-                         zone);
+        return;
+    }
+    if (follower) {
+        x = MMdl_GridX(follower);
+        z = MMdl_GridZ(follower);
+        MMdl_Delete(follower);
+    } else if (player) {
+        x = *(s16 *)(player + MMDL_OLD_GRID_X);
+        z = *(s16 *)(player + MMDL_OLD_GRID_Z);
+        /* one step away; right after a load the old tile can be anything */
+        if ((x - (s32)MMdl_GridX(player)) * (x - (s32)MMdl_GridX(player)) +
+            (z - (s32)MMdl_GridZ(player)) * (z - (s32)MMdl_GridZ(player)) != 1)
+            return;
+    }
+    if (code)
+        MMdlSys_AddParam(mmdlSys, x, z, DIR_DOWN, FOLLOWER_ID, code, MOVE_PAIR, zone);
 }
 
 void Gunk_LoadZoneObjects(void *gameData, void *mmdlSys, void *events, u32 zone)
@@ -126,9 +140,14 @@ void Gunk_LoadZoneObjects(void *gameData, void *mmdlSys, void *events, u32 zone)
 
 void Gunk_LoadWarpObjects(u8 *gameData, u8 *location)
 {
+    u8 *follower;
+
     LoadWarpObjects(gameData, location);
-    sLeadCode = FollowerCode();
-    Refresh(*(void **)(gameData + GAMEDATA_MMDLSYS), *(s16 *)(location + LOCATION_ZONE));
+    /* the field would put the follower on the player's tile: it goes back in its ball, and Follower_Frame brings
+       it out behind the player's first step */
+    follower = MMdlSys_Search(*(void **)(gameData + GAMEDATA_MMDLSYS), FOLLOWER_ID);
+    if (follower)
+        MMdl_Delete(follower);
 }
 
 void Follower_Frame(void *fieldSys)
