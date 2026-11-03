@@ -73,6 +73,7 @@ How it works, and why it patches the retail ROM rather than building from a deco
 - The Gen 5 follower sprites: the community HGSS-style Unova overworlds by hamsterSKULL (myumorph),
   Pokegirl4ever, Kyle-Dove, Phyromatical and the artists of the Pokémon Essentials follower set. The full list is in
   [gunk/followers/CREDITS.md](gunk/followers/CREDITS.md).
+- The Gunk's Black title logo was made for this project.
 - The DexNav idea comes from later Pokémon games and fan hacks such as Pokémon Unbound.
 
 Pokémon is © Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial fan project and contains no ROM data; the follower sprites are fan art (see their credits).

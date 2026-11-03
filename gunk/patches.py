@@ -22,6 +22,53 @@ def identity(rom):
     rom.set_banner_title("Pokémon Gunk's\nBlack Version\nNintendo")
 
 
+TITLE_NARC = 'a/0/2/6'  # the title screen's top-screen layers: 0 tiles, 1 the logo's map, 2 the palette (all 8-bit)
+TITLE_LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'title', 'title_logo.png')
+TITLE_LOGO_CENTRE = (127, 33)  # where Black's own logo sits: centred on x 127, top at y 33
+TITLE_STRIP_TILES = 15  # tiles 0 (blank) to 14: the checkered strip's, which shares the tiles and the map's base
+TITLE_LOGO_COLOURS = 225  # palette indexes 0-224 are the logo's (0 transparent), 225-255 the strip's
+
+
+def title_logo(rom):
+    """The Gunk's Black logo (gunk/title/title_logo.png, made by tools/titlelogo.py) on the title screen, in place of
+    Black's: its tiles go after the checkered strip's, its colours into the logo's part of the palette."""
+    from PIL import Image
+    from ndspy import lz10
+    narc = Narc(rom.file(rom.file_id(TITLE_NARC)))
+    unpack = lambda i: bytearray(lz10.decompress(narc.file(i)))
+    tiles, screen, pal = unpack(0), unpack(1), bytearray(narc.file(2))
+    tile_at = tiles.find(b'RAHC') + 0x20
+    screen_at = screen.find(b'NRCS') + 0x14
+    pal_at = pal.find(b'TTLP') + 0x18
+    count = (len(tiles) - tile_at) // 64
+    logo = Image.open(TITLE_LOGO)
+    assert logo.mode == 'P' and max(logo.getdata()) < TITLE_LOGO_COLOURS
+    page = Image.new('P', (256, 256), 0)
+    page.paste(logo, (TITLE_LOGO_CENTRE[0] - logo.width // 2, TITLE_LOGO_CENTRE[1]))
+    px = page.tobytes()
+    made = {bytes(64): 0}
+    entries = []
+    for ty in range(32):
+        for tx in range(32):
+            tile = bytes(px[(ty * 8 + y) * 256 + tx * 8 + x] for y in range(8) for x in range(8))
+            if tile not in made:
+                made[tile] = TITLE_STRIP_TILES + len(made) - 1
+                assert made[tile] < count, f'title logo: more than {count - TITLE_STRIP_TILES} different tiles'
+                tiles[tile_at + made[tile] * 64:tile_at + made[tile] * 64 + 64] = tile
+            entries.append(made[tile])
+    for t in range(TITLE_STRIP_TILES + len(made) - 1, count):  # tiles nothing uses any more
+        tiles[tile_at + t * 64:tile_at + t * 64 + 64] = bytes(64)
+    screen[screen_at:screen_at + 0x800] = struct.pack('<1024H', *entries)
+    rgb = logo.getpalette()
+    for i in range(1, TITLE_LOGO_COLOURS):
+        r, g, b = rgb[i * 3:i * 3 + 3] if i * 3 + 2 < len(rgb) else (0, 0, 0)
+        struct.pack_into('<H', pal, pal_at + i * 2, r >> 3 | g >> 3 << 5 | b >> 3 << 10)
+    narc.resize_file(0, lz10.compress(bytes(tiles)))
+    narc.resize_file(1, lz10.compress(bytes(screen)))
+    narc.set_file(2, bytes(pal))
+    rom.replace_file(rom.file_id(TITLE_NARC), narc.save())
+
+
 # --- quality of life -----------------------------------------------------------------------------------------------
 
 OVL_FIELD = 21  # loads with the overworld at 0x02187F00
@@ -694,7 +741,7 @@ def followers(rom):
     rom.replace_overlay(OVL_MAP_CHANGE, bytes(code))
 
 
-PATCHES = [identity, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
+PATCHES = [identity, title_logo, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
            dexnav, followers]

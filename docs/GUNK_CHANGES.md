@@ -23,7 +23,7 @@ in-game · ⏳ planned · — skipped.
 |---|---|---|---|---|
 | 1 | Name in the DS menu banner and end credits (8fa30cda) | port | Banner "Pokémon Gunk's / Black Version / Nintendo" in every language slot (`identity`). End credits: Black's staff roll title needs locating (text or graphic). | banner ✅, credits ⏳ |
 | 2 | ROM header title `GUNK PL` (3f119584); game code kept | port | `GUNK B` (GUNK + the retail short code `POKEMON B`); the game code stays `IRBO` so emulators keep the 512 KB flash save type. | ✅ |
-| 3 | Title-screen logo (24f96c51) | adapt | Black's title screen is a 3D/2D scene (`titledemo.narc`); needs new logo art in its format. | ⏳ |
+| 3 | Title-screen logo (24f96c51) | adapt | **Done** (`title_logo`). The user's Gunk's Black logo art goes through `tools/titlelogo.py` (black around the lettering made transparent, scaled to Black's logo size, 224 colours) into `gunk/title/title_logo.png`. In the ROM the logo is the top screen's BG3 (8-bit): `a/0/2/6` file 0 tiles (shared with the checkered strip on BG2, which keeps tiles 1-14 and palette 225-255), 1 the logo's map, 2 the palette. Checked in the emulator: the new logo over the strip, PRESS START clear below. | ✅ |
 
 ## Save and storage
 
@@ -151,7 +151,7 @@ main system struct is at 0x020AA194, with the frame counter at +0xC.
    is decided then (see #5).
 9. **Followers (#11-15):** walking follower done for #1-649 (Black's own sprites, plus the credited
    HGSS-style Unova set for Gen 5). Left: talking to it, and checks with real Surf, bike and cutscenes.
-10. **Title logo (#3)** and **credits name (#1).**
+10. **Credits name (#1).** (Title logo done.)
 
 ## Test results (2026-11-02)
 
