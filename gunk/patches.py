@@ -317,15 +317,30 @@ def exp_bar_x2(rom):
     rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
 
 
+def arm_blx(src, dst):
+    """An ARM BLX (immediate) at src to the Thumb function dst, as hex bytes."""
+    off = (dst & ~1) - (src + 8)
+    assert -0x2000000 <= off < 0x2000000, 'BLX out of range'
+    return struct.pack('<I', 0xFA000000 | (off & 2) << 23 | (off >> 2) & 0xFFFFFF).hex()
+
+
+TP_MAIN_UPDATE = 0x02035A68  # FUN_02035a60, once a frame: bl FUN_020358a0, the touch panel's update
+
+
 def quick_run(rom):
-    """Quick Run: R in a battle's action menu runs (gunk/code/battle.c). In the bottom screen's button handler
-    (FUN_overlay_d_94__02202dc4) the touch test `ldr r0, [r0]; blx FUN_02035c08` becomes `adds r1, r4, #0;
-    bl Gunk_BattleTouch`: the wrapper gets the touch rects' holder and the handler's state (its menu at +0x58)."""
+    """Quick Run and Quick Ball (gunk/code/battle.c): R in a battle's action menu runs, L throws a ball. In the
+    bottom screen's button handler (FUN_overlay_d_94__02202dc4) the touch test `ldr r0, [r0]; blx FUN_02035c08`
+    becomes `adds r1, r4, #0; bl Gunk_BattleTouch`: the wrapper gets the touch rects' holder and the handler's state
+    (its menu at +0x58). The touch panel's per-frame update goes through Gunk_TouchUpdate, which taps the bag's
+    buttons for a throw."""
     code = bytearray(rom.overlay(OVL_BATTLE_VIEW))
     base = rom.overlay_base(OVL_BATTLE_VIEW)
     site = 0x02202E82
     patch(code, site - 2 - base, '0068' + '32f6c2ee', '211c' + thumb_bl(site, code_syms['Gunk_BattleTouch']))
     rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
+    arm9 = bytearray(rom.arm9())
+    patch(arm9, TP_MAIN_UPDATE - ARM9, '8cffffeb', arm_blx(TP_MAIN_UPDATE, code_syms['Gunk_TouchUpdate']))
+    rom.replace_arm9(bytes(arm9))
 
 
 OVL_SUMMARY = 131  # at 0x021D4240
