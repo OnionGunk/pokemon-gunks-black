@@ -146,15 +146,17 @@ void DexNav_Input(void)
 }
 
 /* The search's shaking grass: a field object (DEXNAV_PATCH_CODE, a tuft of tall grass, added after the Gen 5
-   followers' sprites) on a grass tile 2-4 tiles from the player, in the same kind of grass. It sways left and right
-   (its facing flips every 16 frames; its left and right frames lean). Walking up to it (next to it: it stands
+   followers' sprites) on a grass tile 2-4 tiles from the player, in the same kind of grass. Twice a second it gives
+   a quick shake (its facing goes right, left, right, then down; its left and right frames lean, down stands still). Walking up to it (next to it: it stands
    in the way like any object) meets the target; after PATCH_FRAMES the Pokémon gets away, the chain ends, and
    script DEXNAV_GOT_AWAY_SCRIPT says so. */
 #define DEXNAV_PATCH_CODE 0x12E1
 #define DEXNAV_PATCH_ID 0xF4
 #define DEXNAV_GOT_AWAY_SCRIPT 10145  /* script file 872's entry 15 (patches.dexnav_got_away) */
 #define PATCH_FRAMES 600
-#define PATCH_SWAY_SHIFT 4  /* it leans the other way every 16 frames */
+#define PATCH_BURST_EVERY 30  /* a shake twice a second */
+#define PATCH_LEAN 4          /* frames per lean within a shake */
+#define DIR_DOWN 1
 #define PATCH_NEAR 2
 #define PATCH_FAR 4
 #define DIR_LEFT 2
@@ -182,7 +184,8 @@ static u8 sPatch;          /* 1 while the shaking grass is out */
 static u32 sPatchStart;   /* FRAME_COUNTER when it came out */
 static u16 sPatchSpecies;
 static u8 sReached, sGotAway;
-static u8 sLean;          /* which way it leans */
+static u8 sLean;          /* its facing: which way it leans (down: upright) */
+static u32 sBurst;        /* frames from its start to the latest shake's */
 
 /* the tile's kind of encounter ground, or -1 where no wild Pokémon live */
 static s32 GrassType(void *fieldSys, s32 *pos, s32 x, s32 z)
@@ -253,9 +256,17 @@ void DexNav_Frame(void *fieldSys)
         return;
     }
     frames = FRAME_COUNTER - sPatchStart;
-    if (((frames >> PATCH_SWAY_SHIFT) & 1) != sLean) {
-        sLean ^= 1;
-        MMdl_SetDir(patch, sLean ? DIR_RIGHT : DIR_LEFT);
+    while (frames - sBurst >= PATCH_BURST_EVERY)
+        sBurst += PATCH_BURST_EVERY;
+    {
+        u32 t = frames - sBurst, dir;
+
+        /* a quick shake (right, left, right) at the start of every PATCH_BURST_EVERY frames, then still */
+        dir = t < PATCH_LEAN ? DIR_RIGHT : t < 2 * PATCH_LEAN ? DIR_LEFT : t < 3 * PATCH_LEAN ? DIR_RIGHT : DIR_DOWN;
+        if (dir != sLean) {
+            sLean = dir;
+            MMdl_SetDir(patch, dir);
+        }
     }
     dx = (s32)MMdl_GridX(player) - (s32)MMdl_GridX(patch);
     dz = (s32)MMdl_GridZ(player) - (s32)MMdl_GridZ(patch);
@@ -304,7 +315,8 @@ u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
         if (sPatchSpecies && PlacePatch(fieldSys)) {
             sPatch = 1;
             sPatchStart = FRAME_COUNTER;
-            sLean = 0;
+            sLean = DIR_LEFT;
+            sBurst = 0;
         }
     }
     return StepEncount(state, x, fieldSys);
