@@ -15,11 +15,20 @@ from ndsrom import patch
 # --- identity ------------------------------------------------------------------------------------------------------
 
 
+CREDITS_TEXT = 177  # a/0/0/2: the staff roll
+CREDITS_TITLE = 343  # "Pokémon  Black  Version" (the staff roll spaces words twice)
+
+
 def identity(rom):
-    """Header title GUNK B (series pattern: GUNK + the retail short code), DS menu banner text.
-    The game code stays IRBO so emulators keep picking the right save type."""
+    """Header title GUNK B (series pattern: GUNK + the retail short code), DS menu banner text, and the game's name in
+    the staff roll. The game code stays IRBO so emulators keep picking the right save type."""
     rom.set_title('GUNK B')
     rom.set_banner_title("Pokémon Gunk's\nBlack Version\nNintendo")
+
+    def credits(texts):
+        assert text5.to_str(texts[CREDITS_TITLE][0]) == 'Pokémon  Black  Version'
+        texts[CREDITS_TITLE] = (text5.chars("Pokémon  Gunk's  Black  Version"), texts[CREDITS_TITLE][1])
+    _edit_text(rom, 'a/0/0/2', CREDITS_TEXT, credits)
 
 
 TITLE_NARC = 'a/0/2/6'  # the title screen's top-screen layers: 0 tiles, 1 the logo's map, 2 the palette (all 8-bit)

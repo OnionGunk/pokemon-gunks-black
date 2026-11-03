@@ -21,7 +21,7 @@ in-game · ⏳ planned · — skipped.
 
 | # | Change (Platinum commit) | Verdict | Black plan | Status |
 |---|---|---|---|---|
-| 1 | Name in the DS menu banner and end credits (8fa30cda) | port | Banner "Pokémon Gunk's / Black Version / Nintendo" in every language slot (`identity`). End credits: Black's staff roll title needs locating (text or graphic). | banner ✅, credits ⏳ |
+| 1 | Name in the DS menu banner and end credits (8fa30cda) | port | Banner "Pokémon Gunk's / Black Version / Nintendo" in every language slot (`identity`). End credits: the staff roll (a/0/0/2 #177) names the game in line 343, now "Pokémon  Gunk's  Black  Version" (the roll spaces words twice); checked in the built ROM's text, not seen in the game (it needs the ending). | ✅ |
 | 2 | ROM header title `GUNK PL` (3f119584); game code kept | port | `GUNK B` (GUNK + the retail short code `POKEMON B`); the game code stays `IRBO` so emulators keep the 512 KB flash save type. | ✅ |
 | 3 | Title-screen logo (24f96c51) | adapt | **Done** (`title_logo`). The user's Gunk's Black logo art goes through `tools/titlelogo.py` (black around the lettering made transparent, scaled to Black's logo size, 224 colours) into `gunk/title/title_logo.png`. In the ROM the logo is the top screen's BG3 (8-bit): `a/0/2/6` file 0 tiles (shared with the checkered strip on BG2, which keeps tiles 1-14 and palette 225-255), 1 the logo's map, 2 the palette. Checked in the emulator: the new logo over the strip, PRESS START clear below. | ✅ |
 
