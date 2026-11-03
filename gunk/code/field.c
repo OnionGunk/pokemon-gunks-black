@@ -5,11 +5,13 @@
 #define FieldInput ((void (*)(void *))(0x021A2DF0 | 1))
 
 void DexNav_Input(void);           /* dexnav.c */
+void DexNav_Frame(void *field);    /* dexnav.c */
 void Follower_Frame(void *field);  /* follower.c */
 
 void Gunk_FieldInput(void *fieldSys)
 {
     DexNav_Input();
+    DexNav_Frame(fieldSys);
     Follower_Frame(fieldSys);
     FieldInput(fieldSys);
 }

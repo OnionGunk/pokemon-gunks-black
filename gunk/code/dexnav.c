@@ -1,4 +1,5 @@
-/* DexNav: R in tall grass searches for one Pokémon of this route and meets it right away. The target is the first
+/* DexNav: R in tall grass searches for one Pokémon of this route: a patch of grass nearby shakes, and walking up to
+   it within 10 seconds meets the Pokémon. The target is the first
    species of the route you haven't caught; it stays the target until you switch with L+R (the next species of the
    route). Searching for the same species again and again builds a chain (a wild encounter with another species
    ends it; one with the chain's species keeps it): each link rerolls the personality value
@@ -144,33 +145,169 @@ void DexNav_Input(void)
         sRequested = (Key_GetCont() & PAD_L) ? 2 : 1;
 }
 
+/* The search's shaking grass: a field object (DEXNAV_PATCH_CODE, a tuft of tall grass, added after the Gen 5
+   followers' sprites) on a grass tile 2-4 tiles from the player, in the same kind of grass. It sways left and right
+   (its facing flips every 16 frames; its left and right frames lean). Walking up to it (next to it: it stands
+   in the way like any object) meets the target; after PATCH_FRAMES the Pokémon gets away, the chain ends, and
+   script DEXNAV_GOT_AWAY_SCRIPT says so. */
+#define DEXNAV_PATCH_CODE 0x12E1
+#define DEXNAV_PATCH_ID 0xF4
+#define DEXNAV_GOT_AWAY_SCRIPT 10145  /* script file 872's entry 15 (patches.dexnav_got_away) */
+#define PATCH_FRAMES 600
+#define PATCH_SWAY_SHIFT 4  /* it leans the other way every 16 frames */
+#define PATCH_NEAR 2
+#define PATCH_FAR 4
+#define DIR_LEFT 2
+#define DIR_RIGHT 3
+#define FIELD_MMDLSYS 0x38
+#define FIELD_PLAYER 0x8C
+#define FIELD_MAPPER 0x48
+#define FX_TILE(t) (((t) * 16 + 8) << 12)
+#define MMdlSys_AddParam ((void *(*)(void *, s32, s32, u32, u32, u32, u32, u32))(0x0216CE6C | 1))
+#define MMdlSys_Player ((void *(*)(void *))(0x0216DEE0 | 1))
+#define MMdlSys_Search ((void *(*)(void *, u32))(0x0216DE94 | 1))
+#define MMdl_Delete ((void (*)(void *))(0x0216CF2C | 1))
+#define MMdl_GridX ((u32 (*)(void *))(0x0216D83C | 1))
+#define MMdl_GridZ ((u32 (*)(void *))(0x0216D86C | 1))
+#define MMdl_SetDir ((void (*)(void *, u32))(0x0216D5E0 | 1))
+#define FieldPlayer_GetPos ((void (*)(void *, s32 *))(0x021A3038 | 1))   /* x, y, z, 16.16 */
+#define Map_GetAttr ((u32 (*)(void *, const s32 *))(0x021AB0D4 | 1))
+#define Attr_EncountType ((u32 (*)(u32))(0x021AB0F0 | 1))
+#define Attr_HasEncount ((u32 (*)(u32))(0x021AB100 | 1))  /* wild Pokémon live there */
+#define Event_Script ((u32 (*)(void *, u32, void *, u32))(0x02158768 | 1))
+#define FIELD_GSYS 0x04
+#define FIELD_ZONE 0x00          /* u16 */
+
+static u8 sPatch;          /* 1 while the shaking grass is out */
+static u32 sPatchStart;   /* FRAME_COUNTER when it came out */
+static u16 sPatchSpecies;
+static u8 sReached, sGotAway;
+static u8 sLean;          /* which way it leans */
+
+/* the tile's kind of encounter ground, or -1 where no wild Pokémon live */
+static s32 GrassType(void *fieldSys, s32 *pos, s32 x, s32 z)
+{
+    s32 at[3];
+    u32 attr;
+
+    at[0] = FX_TILE(x);
+    at[1] = pos[1];
+    at[2] = FX_TILE(z);
+    attr = Map_GetAttr(*(void **)((u8 *)fieldSys + FIELD_MAPPER), at);
+    return Attr_HasEncount(attr) ? (s32)Attr_EncountType(attr) : -1;
+}
+
+/* a tile PATCH_NEAR-PATCH_FAR tiles away with the same kind of grass as the player's, and nothing on it */
+static int PlacePatch(void *fieldSys)
+{
+    void *sys = *(void **)((u8 *)fieldSys + FIELD_MMDLSYS);
+    u8 *player = MMdlSys_Player(sys);
+    s32 pos[3], px, pz, kind;
+    int tries;
+
+    if (!player)
+        return 0;
+    FieldPlayer_GetPos(*(void **)((u8 *)fieldSys + FIELD_PLAYER), pos);
+    px = MMdl_GridX(player);
+    pz = MMdl_GridZ(player);
+    kind = GrassType(fieldSys, pos, px, pz);
+    if (kind < 0)
+        return 0;  /* not in the grass */
+    for (tries = 0; tries < 40; tries++) {
+        s32 dx = (s32)(Random() * (2 * PATCH_FAR + 1) >> 16) - PATCH_FAR;  /* Random() is 16 bits */
+        s32 dz = (s32)(Random() * (2 * PATCH_FAR + 1) >> 16) - PATCH_FAR;
+        s32 d = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
+
+        if (d < PATCH_NEAR || d > PATCH_FAR || GrassType(fieldSys, pos, px + dx, pz + dz) != kind)
+            continue;
+        MMdlSys_AddParam(sys, px + dx, pz + dz, DIR_LEFT, DEXNAV_PATCH_ID, DEXNAV_PATCH_CODE, 0,
+                         *(u16 *)((u8 *)fieldSys + FIELD_ZONE));
+        return 1;
+    }
+    return 0;
+}
+
+static void RemovePatch(void *fieldSys)
+{
+    void *patch = MMdlSys_Search(*(void **)((u8 *)fieldSys + FIELD_MMDLSYS), DEXNAV_PATCH_ID);
+
+    if (patch)
+        MMdl_Delete(patch);
+    sPatch = 0;
+}
+
+/* with the field's per-frame input (field.c): the patch sways, is reached, or times out */
+void DexNav_Frame(void *fieldSys)
+{
+    void *sys = *(void **)((u8 *)fieldSys + FIELD_MMDLSYS);
+    u8 *patch, *player;
+    s32 dx, dz;
+    u32 frames;
+
+    if (!sPatch)
+        return;
+    patch = MMdlSys_Search(sys, DEXNAV_PATCH_ID);
+    player = MMdlSys_Player(sys);
+    if (!patch || !player) {
+        sPatch = 0;
+        return;
+    }
+    frames = FRAME_COUNTER - sPatchStart;
+    if (((frames >> PATCH_SWAY_SHIFT) & 1) != sLean) {
+        sLean ^= 1;
+        MMdl_SetDir(patch, sLean ? DIR_RIGHT : DIR_LEFT);
+    }
+    dx = (s32)MMdl_GridX(player) - (s32)MMdl_GridX(patch);
+    dz = (s32)MMdl_GridZ(player) - (s32)MMdl_GridZ(patch);
+    if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) <= 1) {
+        RemovePatch(fieldSys);
+        sReached = 1;
+    } else if (frames >= PATCH_FRAMES) {
+        RemovePatch(fieldSys);
+        sChain = 0;
+        sChainSpecies = 0;
+        sGotAway = 1;
+    }
+}
+
 u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
 {
-    void *enc;
-    const u8 *table;
+    void *enc = FieldSys_GetEncount(fieldSys);
+    const u8 *table = *(const u8 **)((u8 *)enc + 0xC);
     u32 started = 0;
     int switchTarget = sRequested == 2;
 
+    if (sGotAway) {
+        sGotAway = 0;
+        return Event_Script(*(void **)((u8 *)fieldSys + FIELD_GSYS), DEXNAV_GOT_AWAY_SCRIPT, 0,
+                            *(u16 *)((u8 *)fieldSys + FIELD_ZONE));
+    }
+    if (sReached) {
+        sReached = 0;
+        sTarget = sPatchSpecies;
+        if (sTarget == sChainSpecies) {
+            if (sChain < CHAIN_MAX)
+                sChain++;
+        } else {
+            sChainSpecies = sTarget;
+            sChain = 1;
+        }
+        started = Encount_Try(enc, 1);
+        sTarget = 0;
+        return started ? started : StepEncount(state, x, fieldSys);
+    }
     if (!sRequested)
         return StepEncount(state, x, fieldSys);
     sRequested = 0;
-    enc = FieldSys_GetEncount(fieldSys);
-    table = *(const u8 **)((u8 *)enc + 0xC);
-    if (table && (table[7] & ENC_LOADED)) {
-        sTarget = ChooseTarget(table, switchTarget);
-        if (sTarget) {
-            if (sTarget == sChainSpecies) {
-                if (sChain < CHAIN_MAX)
-                    sChain++;
-            } else {
-                sChainSpecies = sTarget;
-                sChain = 1;
-            }
-            started = Encount_Try(enc, 1);
+    if (!sPatch && table && (table[7] & ENC_LOADED)) {
+        sPatchSpecies = ChooseTarget(table, switchTarget);
+        if (sPatchSpecies && PlacePatch(fieldSys)) {
+            sPatch = 1;
+            sPatchStart = FRAME_COUNTER;
+            sLean = 0;
         }
-        sTarget = 0;
     }
-    return started ? started : StepEncount(state, x, fieldSys);
+    return StepEncount(state, x, fieldSys);
 }
 
 /* one of the target's grass slots, with the slots' own odds (each slot has its own level) */

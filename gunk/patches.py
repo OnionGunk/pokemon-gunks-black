@@ -718,6 +718,8 @@ MSG_FOLLOWER_TALK = 14  # a/0/0/3 #263, after the Repel prompt's message
 OP_BUFFER_PARTY_NICK = 0x54  # (register u8, party slot var u16)
 SCRIPT_FIELD_COMMON_FIRST_ID = 10130  # overlay 10's script table: file 872 holds IDs 10130-10149
 FOLLOWER_SCRIPT = 10144  # follower.c FOLLOWER_SCRIPT
+DEXNAV_GOT_AWAY_SCRIPT = 10145  # dexnav.c DEXNAV_GOT_AWAY_SCRIPT
+MSG_DEXNAV_GOT_AWAY = 15
 
 
 def follower_talk(rom):
@@ -741,7 +743,28 @@ def follower_talk(rom):
     _edit_script(rom, SCRIPT_FIELD_COMMON, script)
 
 
+def dexnav_got_away(rom):
+    """When the player doesn't reach the shaking grass of a DexNav search in time (gunk/code/dexnav.c), the search
+    ends with "The wild Pokémon got away...": script 10145, entry 15 of the common file 872 (text 263)."""
+    def text(items):
+        assert len(items) == MSG_DEXNAV_GOT_AWAY
+        items.append((text5.chars('The wild Pokémon got away...'), items[0][1]))
+    _edit_text(rom, 'a/0/0/3', TEXT_FIELD_COMMON, text)
+    S = script5
+
+    def script(sf):
+        index = sf.add_entry()
+        assert SCRIPT_FIELD_COMMON_FIRST_ID + index == DEXNAV_GOT_AWAY_SCRIPT
+        program = [(S.OP_LOCK,), (S.OP_MESSAGE, MSG_DEXNAV_GOT_AWAY, 2), (S.OP_WAIT_A,), (S.OP_CLOSE,),
+                   (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
+        at = len(sf.data) + len(sf.data) % 2
+        sf.set_entry(index, sf.append(S.assemble(at, program)))
+    _edit_script(rom, SCRIPT_FIELD_COMMON, script)
+
+
 FOLLOWERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
+DEXNAV_PATCH_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dexnav', 'patch.png')  # shaking grass
+DEXNAV_PATCH_CODE = 0x12E1  # its object code, after the Gen 5 followers' (dexnav.c)
 # Gen 5 species that fly or float: their sprite parameters take the flag Black gives its own flyers (byte 3 0x0B)
 FOLLOWERS_FLYING = {517, 518, 519, 520, 521, 527, 528, 561, 562, 566, 567, 577, 578, 579, 580, 581, 582, 583, 584, 587,
                     592, 593, 599, 600, 601, 602, 603, 604, 608, 609, 615, 627, 628, 629, 630, 635, 637, 641, 642, 645}
@@ -768,11 +791,15 @@ def gen5_follower_sprites(rom):
     at = max(i for i, e in enumerate(entries) if struct.unpack_from('<H', e)[0] < 0x2000) + 1
     code = struct.unpack_from('<H', entries[at - 1])[0] + 1
     sprites = []
-    for name in sorted(os.listdir(FOLLOWERS_DIR), key=lambda n: (n.split('.')[0].split('-')[0], n)):
-        if not name.endswith('.png'):
-            continue
-        species, _, variant = name[:-4].partition('-')
-        img = Image.open(os.path.join(FOLLOWERS_DIR, name))
+    files = [os.path.join(FOLLOWERS_DIR, n) for n in sorted(os.listdir(FOLLOWERS_DIR),
+                                                            key=lambda n: (n.split('.')[0].split('-')[0], n))
+             if n.endswith('.png')]
+    for path in files + [DEXNAV_PATCH_PNG]:  # the DexNav patch last: dexnav.c DEXNAV_PATCH_CODE
+        if path == DEXNAV_PATCH_PNG:
+            species, variant = 0, 'patch'
+        else:
+            species, _, variant = os.path.basename(path)[:-4].partition('-')
+        img = Image.open(path)
         size = img.height
         entry, tex = templates[size]
         tex = bytearray(tex)
@@ -789,7 +816,7 @@ def gen5_follower_sprites(rom):
         tex[base + pals[0]['off']:base + pals[0]['off'] + 32] = pal
         sprites.append((int(species), variant, code, bytes(tex), entry))
         code += 1
-    assert code <= 0x2000
+    assert code <= 0x2000 and sprites[-1][2] == DEXNAV_PATCH_CODE
     first = textures.add_files([s[3] for s in sprites])
     new_entries, table = [], b''
     for i, (species, variant, code, _, entry) in enumerate(sprites):
@@ -798,19 +825,22 @@ def gen5_follower_sprites(rom):
         struct.pack_into('<H', entry, 0x10, first + i)
         entry[3] = 0x0B if species in FOLLOWERS_FLYING else 0x0A
         new_entries.append(bytes(entry))
+        if not species:
+            continue  # the DexNav patch: no follower
         gender = 1 if variant == 'f' else 0 if os.path.exists(os.path.join(FOLLOWERS_DIR, f'{species}-f.png')) else 2
         form = int(variant) if variant.isdigit() else 0
         table += struct.pack('<4H', species, gender, form, code)
     entries[at:at] = new_entries
+    end = sprites[-1][2] + 1  # one past the last new code
     # FUN_0200F128 turns an object code into its row by ranges: Pokémon 0x1000-0x1235 (row code - 0xF21), then
     # 0x2000-0x2009 (row code - 0x1CEB), anything else the default. The Pokémon range takes in the new codes and
     # the rows after it move down.
     arm9 = bytearray(rom.arm9())
-    patch(arm9, 0x0200F160 - ARM9, '36120000', struct.pack('<I', code).hex())
+    patch(arm9, 0x0200F160 - ARM9, '36120000', struct.pack('<I', end).hex())
     patch(arm9, 0x0200F164 - ARM9, 'eb1c0000', struct.pack('<I', 0x1CEB - len(new_entries)).hex())
     rom.replace_arm9(bytes(arm9))
     ovl = bytearray(rom.overlay(11))  # FUN_overlay_d_11__021755xx checks a code against the same range
-    patch(ovl, 0x02175624 - rom.overlay_base(11), '36120000', struct.pack('<I', code).hex())
+    patch(ovl, 0x02175624 - rom.overlay_base(11), '36120000', struct.pack('<I', end).hex())
     rom.replace_overlay(11, bytes(ovl))
     assert entries.index(by_code[0x2000]) == 0x2000 - (0x1CEB - len(new_entries))
     params_narc.resize_file(0, struct.pack('<I', len(entries)) + b''.join(entries))
@@ -842,4 +872,4 @@ def followers(rom):
 PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, quick_run, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
-           dexnav, followers, follower_talk]
+           dexnav, followers, follower_talk, dexnav_got_away]
