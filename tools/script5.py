@@ -133,6 +133,17 @@ class ScriptFile:
         """Point entry `index` at `offset`."""
         struct.pack_into('<i', self.data, index * 4, offset - (index * 4 + 4))
 
+    def add_entry(self):
+        """Grow the entry table by one (before its 0xFD13): everything after it moves 4 bytes on, which the old
+        entries' offsets (relative to their own fields) are corrected for; code inside only jumps relatively.
+        Returns the new entry's index, pointing nowhere yet (set_entry it)."""
+        count = len(entries(self.data))
+        assert struct.unpack_from('<H', self.data, count * 4)[0] == END_OF_TABLE
+        for i in range(count):
+            struct.pack_into('<i', self.data, i * 4, struct.unpack_from('<i', self.data, i * 4)[0] + 4)
+        self.data[count * 4:count * 4] = bytes(4)
+        return count
+
     def save(self):
         return bytes(self.data)
 

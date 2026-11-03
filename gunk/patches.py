@@ -712,6 +712,33 @@ def dexnav(rom):
     rom.replace_overlay(OVL_FIELD, bytes(code))
 
 
+MSG_FOLLOWER_TALK = 14  # a/0/0/3 #263, after the Repel prompt's message
+OP_BUFFER_PARTY_NICK = 0x54  # (register u8, party slot var u16)
+SCRIPT_FIELD_COMMON_FIRST_ID = 10130  # overlay 10's script table: file 872 holds IDs 10130-10149
+FOLLOWER_SCRIPT = 10144  # follower.c FOLLOWER_SCRIPT
+
+
+def follower_talk(rom):
+    """Talking to the follower (gunk/code/follower.c gives it script 10144 at +0x14, where the field's talk check
+    FUN_overlay_d_21__02189bd0 reads an object's script): script file 872 (common, IDs 10130-10149, text 263) gets
+    entry 14, "<lead's nickname> is following you happily."."""
+    def text(items):
+        assert len(items) == MSG_FOLLOWER_TALK
+        items.append(([0xF000, 0x102, 1, 0] + text5.chars(' is following you happily.'), items[0][1]))
+    _edit_text(rom, 'a/0/0/3', TEXT_FIELD_COMMON, text)
+    S = script5
+
+    def script(sf):
+        index = sf.add_entry()
+        assert SCRIPT_FIELD_COMMON_FIRST_ID + index == FOLLOWER_SCRIPT
+        program = [(S.OP_LOCK,), (S.OP_SET_VAR, VAR_A, 0), (OP_BUFFER_PARTY_NICK, ('u8', 0), VAR_A),
+                   (S.OP_MESSAGE, MSG_FOLLOWER_TALK, 2), (S.OP_WAIT_A,), (S.OP_CLOSE,), (S.OP_RELEASE_A,),
+                   (S.OP_RELEASE_B,), (S.OP_END,)]
+        at = len(sf.data) + len(sf.data) % 2
+        sf.set_entry(index, sf.append(S.assemble(at, program)))
+    _edit_script(rom, SCRIPT_FIELD_COMMON, script)
+
+
 FOLLOWERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
 # Gen 5 species that fly or float: their sprite parameters take the flag Black gives its own flyers (byte 3 0x0B)
 FOLLOWERS_FLYING = {517, 518, 519, 520, 521, 527, 528, 561, 562, 566, 567, 577, 578, 579, 580, 581, 582, 583, 584, 587,
@@ -813,4 +840,4 @@ def followers(rom):
 PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, quick_run, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
-           dexnav, followers]
+           dexnav, followers, follower_talk]

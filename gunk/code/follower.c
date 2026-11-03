@@ -18,6 +18,8 @@
 
 #define MMDL_ZONE 0x0A       /* u16 */
 #define MMDL_CODE 0x0C       /* u16 */
+#define MMDL_SCRIPT 0x14     /* u16: the script talking to it runs */
+#define FOLLOWER_SCRIPT 10144  /* script file 872's entry 14 (patches.follower_talk) */
 #define MMDL_OLD_GRID_X 0x36 /* s16: the tile it is stepping off (its own tile when it stands, stale after a load) */
 #define MMDL_OLD_GRID_Z 0x3A
 #define FIELD_GAMEDATA 0x08
@@ -113,6 +115,7 @@ static void Refresh(void *mmdlSys, u32 zone)
 
     if (follower && *(u16 *)(follower + MMDL_CODE) == code) {
         *(u16 *)(follower + MMDL_ZONE) = zone;
+        *(u16 *)(follower + MMDL_SCRIPT) = FOLLOWER_SCRIPT;
         return;
     }
     if (follower) {
