@@ -57,4 +57,6 @@ MSYS2's `arm-none-eabi-gcc` and linked at fixed addresses. No CTRMap project and
   lists, a disassembler (`python tools/script5.py <rom> dis <file>`), and append-only editing. `capstone` is
   needed (`pip install capstone`).
 - `emu/`: BizHawk harness (from the Platinum and HeartGold hacks) and `emu/suite/` save tests.
+- `emu/suite/milestones.py`: story milestones toward a v1.0 playthrough test (Mom's gifts, Cut, Surf, Strength so
+  far; gyms through the Champion next). `milestones.py starter` remakes the after-starter save they start from.
 - Python: `.venv` (Python 3.13 + `ndspy`, `capstone`, `pillow`). Create it with `py -3.13 -m venv .venv && .venv/Scripts/python -m pip install ndspy capstone pillow`.
