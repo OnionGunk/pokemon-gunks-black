@@ -4,7 +4,7 @@
 
 #include "gunk.h"
 
-#define FOLLOWER_SPRITES_MAX 600
+#define FOLLOWER_SPRITES_MAX 800
 
 struct FollowerSprite {
     u16 species;

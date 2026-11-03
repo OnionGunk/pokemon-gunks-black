@@ -98,9 +98,39 @@ class Rom:
             self.data[start:slot] = b'\xFF' * (slot - start)
         else:  # free the slot first, so it can merge with free space next to it and be reused
             self._release(start, slot)
-            start = self._alloc(len(new))
+            try:
+                start = self._alloc(len(new))
+            except ValueError:
+                start = self._open_room(start, len(new), fid)
         self.data[start:start + len(new)] = new
         struct.pack_into('<II', self.data, self.fat_off + fid * 8, start, start + len(new))
+
+    def _open_room(self, at, size, skip):
+        """No hole is big enough: the hole at `at` grows by moving the files on either side of it (the smaller one
+        first) into other holes, until it is. Returns its start, taken."""
+        while True:
+            hole = next(h for h in self.holes if h[0] <= at < h[1])
+            if hole[1] - hole[0] >= size:
+                break
+            files = [(i, *self.file_range(i)) for i in range(self.nfiles) if i != skip]
+            sides = [f for f in files if f[2] <= hole[0] and self._slot_end(f[0]) == hole[0]]
+            sides += [f for f in files if f[1] == hole[1]]
+            if not sides:
+                raise ValueError(f'ROM full: need {size:#x} at {at:#x}, nothing next to its hole can move')
+            fid, start, end = min(sides, key=lambda f: f[2] - f[1])
+            slot = self._slot_end(fid)
+            self.holes.remove(hole)
+            try:
+                new = self._alloc(end - start)
+            finally:
+                self.holes.append(hole)
+                self.holes.sort()
+            self.data[new:new + end - start] = self.data[start:end]
+            struct.pack_into('<II', self.data, self.fat_off + fid * 8, new, new + end - start)
+            self._release(start, slot)
+        start = hole[0]
+        hole[0] = min((start + size + ALIGN - 1) & ~(ALIGN - 1), hole[1])
+        return start
 
     def _move_file(self, fid):
         start, end = self.file_range(fid)

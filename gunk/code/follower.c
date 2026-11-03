@@ -2,8 +2,8 @@
 
    Black keeps Gen 4's "pair" movement type (0x30, unused by any map): an object with it records where the player
    is and steps after them. The follower is such an object (id FOLLOWER_ID) with the lead Pokémon's overworld
-   sprite, from Black's own table of sprites for #1-493 (followertab.c). A lead without a sprite (Gen 5 for now),
-   an egg or a fainted lead has no follower, and it goes back in its ball while the player cycles or surfs.
+   sprite: Black's own sprites for #1-493 and the added Gen 5 ones (followertab.c). An egg or a fainted lead has no
+   follower, and it goes back in its ball while the player cycles or surfs.
    - Gunk_LoadZoneObjects wraps the field's loading of a zone's objects when the player crosses into another
      zone (FUN_overlay_d_21__021894e0), Gunk_LoadWarpObjects the loading after a warp (FUN_overlay_d_20__021858e4,
      doors, stairs, Fly): both put the follower in, on the player's tile.

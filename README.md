@@ -26,9 +26,9 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **DexNav:** press R in tall grass to meet a Pokémon of that route, starting with one you haven't caught; L+R
   switches to the next. Searching for the same one again builds a chain for better IVs and shiny odds.
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
-- **Follower Pokémon:** the first Pokémon in your party walks behind you, using Black's own overworld sprites.
-  For now that covers #1-493. Gen 5 Pokémon get a follower once a sprite pack for them is in. It goes back in its
-  ball while you cycle or surf.
+- **Follower Pokémon:** the first Pokémon in your party walks behind you: every species #1-649. #1-493 use
+  Black's own overworld sprites, #494-649 the community-made HGSS-style Unova overworlds (credits below). It goes
+  back in its ball while you cycle or surf.
 
 ## Play it
 
@@ -53,7 +53,7 @@ its SHA-1 and refuses any other):
 
 ```
 py -3.13 -m venv .venv
-.venv/Scripts/python -m pip install ndspy capstone
+.venv/Scripts/python -m pip install ndspy capstone pillow
 echo C:/path/to/black.nds > baserom.txt
 .venv/Scripts/python build.py            # build/gunk-black.nds and build/gunk-black.bps (verified)
 .venv/Scripts/python build.py --vanilla  # the same pipeline with no patches: must equal the base ROM
@@ -70,6 +70,9 @@ How it works, and why it patches the retail ROM rather than building from a deco
 - [PKHeX](https://github.com/kwsch/PKHeX), for the documented Gen 5 save layout the tests check.
 - [BizHawk](https://github.com/TASEmulators/BizHawk) and melonDS, for the emulator tests.
 - The DS Pokémon Hacking community's [Gen V documentation](https://ds-pokemon-hacking.github.io/).
+- The Gen 5 follower sprites: the community HGSS-style Unova overworlds by hamsterSKULL (myumorph),
+  Pokegirl4ever, Kyle-Dove, Phyromatical and the artists of the Pokémon Essentials follower set. The full list is in
+  [gunk/followers/CREDITS.md](gunk/followers/CREDITS.md).
 - The DexNav idea comes from later Pokémon games and fan hacks such as Pokémon Unbound.
 
-Pokémon is © Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial fan project and contains no ROM data.
+Pokémon is © Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial fan project and contains no ROM data; the follower sprites are fan art (see their credits).

@@ -214,8 +214,8 @@ def code_home(rom):
             bits = int.from_bytes(personal.file(sp)[0x28:0x38], 'little')
             blob[at + sp] = bits >> 95 & 0x3F
     if 'gGunkFollowerSprites' in syms:  # follower.c: Black's species/gender/form -> overworld sprite table
-        table = Narc(rom.file(rom.file_id('a/2/1/1'))).file(0)
-        assert len(table) // 8 < 600 and len(table) % 8 == 0
+        table = Narc(rom.file(rom.file_id('a/2/1/1'))).file(0) + gen5_follower_sprites(rom)
+        assert len(table) // 8 < 800 and len(table) % 8 == 0
         at = syms['gGunkFollowerSprites'] - CODE_HOME
         blob[at:at + len(table) + 8] = table + bytes(8)
     open(os.path.join(cc.OUT, 'gunk.bin'), 'wb').write(blob)  # what the suite compares the RAM against
@@ -594,6 +594,84 @@ def dexnav(rom):
                               (0x021AA4D8, 0x021A96B8, 'Gunk_DexNav_Create')):  # and perfect IVs
         patch(code, site - base, thumb_bl(site, retail), thumb_bl(site, code_syms[sym]))
     rom.replace_overlay(OVL_FIELD, bytes(code))
+
+
+FOLLOWERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
+# Gen 5 species that fly or float: their sprite parameters take the flag Black gives its own flyers (byte 3 0x0B)
+FOLLOWERS_FLYING = {517, 518, 519, 520, 521, 527, 528, 561, 562, 566, 567, 577, 578, 579, 580, 581, 582, 583, 584, 587,
+                    592, 593, 599, 600, 601, 602, 603, 604, 608, 609, 615, 627, 628, 629, 630, 635, 637, 641, 642, 645}
+SPRITE_PARAM_SIZE = 28
+CODE_POKE_32 = 0x1000  # Bulbasaur: 32x32, eight frames (each direction drawn)
+CODE_POKE_64 = 0x1235  # 64x64, six frames (right is left mirrored)
+
+
+def gen5_follower_sprites(rom):
+    """Overworld sprites for #494-649 (gunk/followers, from the community HGSS-style Unova set; see its CREDITS.md):
+    each becomes a texture file in a/0/4/9, made from one of Black's own Pokémon sprites of the same size with the
+    frames and palette swapped, and a sprite parameter entry in a/0/4/8 under a new object code after Black's
+    last Pokémon one (the table stays sorted by code). Returns their species/gender/form -> code entries."""
+    from PIL import Image
+    import btx0
+    params_narc = Narc(rom.file(rom.file_id('a/0/4/8')))
+    params = bytes(params_narc.file(0))
+    count = struct.unpack_from('<I', params)[0]
+    entries = [params[4 + i * SPRITE_PARAM_SIZE:4 + (i + 1) * SPRITE_PARAM_SIZE] for i in range(count)]
+    by_code = {struct.unpack_from('<H', e)[0]: e for e in entries}
+    textures = Narc(rom.file(rom.file_id('a/0/4/9')))
+    templates = {size: (by_code[c], textures.file(struct.unpack_from('<H', by_code[c], 0x10)[0]))
+                 for size, c in ((32, CODE_POKE_32), (64, CODE_POKE_64))}
+    at = max(i for i, e in enumerate(entries) if struct.unpack_from('<H', e)[0] < 0x2000) + 1
+    code = struct.unpack_from('<H', entries[at - 1])[0] + 1
+    sprites = []
+    for name in sorted(os.listdir(FOLLOWERS_DIR), key=lambda n: (n.split('.')[0].split('-')[0], n)):
+        if not name.endswith('.png'):
+            continue
+        species, _, variant = name[:-4].partition('-')
+        img = Image.open(os.path.join(FOLLOWERS_DIR, name))
+        size = img.height
+        entry, tex = templates[size]
+        tex = bytearray(tex)
+        texs, pals, _ = btx0.read(bytes(tex))
+        assert len(texs) == img.width // size and all(t['fmt'] == '4bpp' and t['w'] == size for t in texs)
+        base = struct.unpack_from('<I', tex, 0x10)[0]
+        px = img.tobytes()
+        for k, t in enumerate(texs):
+            frame = bytes(px[y * img.width + k * size + x] for y in range(size) for x in range(size))
+            tex[base + t['off']:base + t['off'] + t['size']] = bytes(a | b << 4 for a, b in zip(frame[::2], frame[1::2]))
+        rgb = img.getpalette()[:48]
+        pal = b''.join(struct.pack('<H', rgb[i] >> 3 | rgb[i + 1] >> 3 << 5 | rgb[i + 2] >> 3 << 10)
+                       for i in range(0, 48, 3))
+        tex[base + pals[0]['off']:base + pals[0]['off'] + 32] = pal
+        sprites.append((int(species), variant, code, bytes(tex), entry))
+        code += 1
+    assert code <= 0x2000
+    first = textures.add_files([s[3] for s in sprites])
+    new_entries, table = [], b''
+    for i, (species, variant, code, _, entry) in enumerate(sprites):
+        entry = bytearray(entry)
+        struct.pack_into('<H', entry, 0, code)
+        struct.pack_into('<H', entry, 0x10, first + i)
+        entry[3] = 0x0B if species in FOLLOWERS_FLYING else 0x0A
+        new_entries.append(bytes(entry))
+        gender = 1 if variant == 'f' else 0 if os.path.exists(os.path.join(FOLLOWERS_DIR, f'{species}-f.png')) else 2
+        form = int(variant) if variant.isdigit() else 0
+        table += struct.pack('<4H', species, gender, form, code)
+    entries[at:at] = new_entries
+    # FUN_0200F128 turns an object code into its row by ranges: Pokémon 0x1000-0x1235 (row code - 0xF21), then
+    # 0x2000-0x2009 (row code - 0x1CEB), anything else the default. The Pokémon range takes in the new codes and
+    # the rows after it move down.
+    arm9 = bytearray(rom.arm9())
+    patch(arm9, 0x0200F160 - ARM9, '36120000', struct.pack('<I', code).hex())
+    patch(arm9, 0x0200F164 - ARM9, 'eb1c0000', struct.pack('<I', 0x1CEB - len(new_entries)).hex())
+    rom.replace_arm9(bytes(arm9))
+    ovl = bytearray(rom.overlay(11))  # FUN_overlay_d_11__021755xx checks a code against the same range
+    patch(ovl, 0x02175624 - rom.overlay_base(11), '36120000', struct.pack('<I', code).hex())
+    rom.replace_overlay(11, bytes(ovl))
+    assert entries.index(by_code[0x2000]) == 0x2000 - (0x1CEB - len(new_entries))
+    params_narc.resize_file(0, struct.pack('<I', len(entries)) + b''.join(entries))
+    rom.replace_file(rom.file_id('a/0/4/8'), params_narc.save())
+    rom.replace_file(rom.file_id('a/0/4/9'), textures.save())
+    return table
 
 
 def followers(rom):

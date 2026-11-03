@@ -50,5 +50,24 @@ class Narc:
         struct.pack_into('<I', self.data, gmif + 4, struct.unpack_from('<I', self.data, gmif + 4)[0] + delta)
         struct.pack_into('<I', self.data, 8, len(self.data))
 
+    def add_files(self, new):
+        """Append files (the archive is laid out again, its existing files keep their bytes and order); returns the
+        first new file's index."""
+        first = self.count
+        files = [self.file(i) for i in range(self.count)] + [bytes(f) for f in new]
+        btaf = struct.unpack_from('<H', self.data, 0xC)[0]
+        btnf = btaf + struct.unpack_from('<I', self.data, btaf + 4)[0]
+        names = bytes(self.data[btnf:btnf + struct.unpack_from('<I', self.data, btnf + 4)[0]])
+        fat, img = bytearray(), bytearray()
+        for f in files:
+            fat += struct.pack('<II', len(img), len(img) + len(f))
+            img += f + b'\xFF' * (-len(f) % 4)
+        out = bytearray(self.data[:btaf])
+        out += b'BTAF' + struct.pack('<IHH', 12 + len(fat), len(files), 0) + fat + names
+        out += b'GMIF' + struct.pack('<I', 8 + len(img)) + img
+        struct.pack_into('<I', out, 8, len(out))
+        self.__init__(out)
+        return first
+
     def save(self):
         return bytes(self.data)
