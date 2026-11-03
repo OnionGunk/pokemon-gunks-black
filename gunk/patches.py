@@ -458,6 +458,7 @@ POCKET_KEY = 4
 SCRIPT_RUNNING_SHOES, TEXT_RUNNING_SHOES = 638, 351  # zone 319: Mom's Running Shoes scene
 MSG_SHOES_EXPLAINED = 6
 OP_FANFARE, OP_FANFARE_WAIT, OP_ADD_ITEM = 0xA9, 0xAA, 0xB5
+OP_BALLOON, OP_BALLOON_CLOSE, OP_WAIT_KEY = 0x3C, 0x3E, 0x4B  # a speech balloon (u8, u8, msg, ...); wait for A
 FANFARE_KEY_ITEM = 0x0517
 
 
@@ -507,12 +508,13 @@ def endless_repel(rom):
         received = received[:at] + text5.chars('the') + received[at + len(pair):]
         shoes = text5.chars('Running Shoes')
         at = next(i for i in range(len(received)) if received[i:i + len(shoes)] == shoes)
+        wait = [0xF000, 0xBE01, 0]  # a balloon line waits for A at its end, as Mom's own lines do
         texts += [(received[:at] + text5.chars('Endless Repel') + received[at + len(shoes):], texts[4][1]),
-                  (text5.chars('And this keeps weak wild Pokémon away.\nSwitch it on or off from the Key Items!'),
-                   texts[MSG_SHOES_EXPLAINED][1]),
+                  (text5.chars('And this keeps weak wild Pokémon away.\nSwitch it on or off from the Key Items!')
+                   + wait, texts[MSG_SHOES_EXPLAINED][1]),
                   (received[:at] + text5.chars('Exp. All') + received[at + len(shoes):], texts[4][1]),
-                  (text5.chars('With that on, your whole team learns\nfrom every battle, even from the bench!'),
-                   texts[MSG_SHOES_EXPLAINED][1])]
+                  (text5.chars('With that on, your whole team learns\nfrom every battle, even from the bench!')
+                   + wait, texts[MSG_SHOES_EXPLAINED][1])]
         return len(texts) - 4
     msg = {}
     _edit_text(rom, 'a/0/0/3', TEXT_RUNNING_SHOES, lambda t: msg.setdefault('recv', gift_text(t)))
@@ -524,14 +526,14 @@ def endless_repel(rom):
         assert sf.data[hook:hook + 14] == bytes.fromhex('3c0000040600fb0000000000' + '3e00')
         explained = bytes(sf.data[hook:hook + 12])
         at = len(sf.data) + len(sf.data) % 2
-        program = [(0x3C, ('u8', 0), ('u8', 4), MSG_SHOES_EXPLAINED, 0xFB, 0, 0),
-                   (OP_ADD_ITEM, ITEM_ENDLESS_REPEL, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
-                   (S.OP_MESSAGE, msg['recv'], 2), (OP_FANFARE_WAIT,), (S.OP_CLOSE,),
-                   (0x3C, ('u8', 0), ('u8', 4), msg['recv'] + 1, 0xFB, 0, 0),
-                   (OP_ADD_ITEM, ITEM_EXP_ALL, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
-                   (S.OP_MESSAGE, msg['recv'] + 2, 2), (OP_FANFARE_WAIT,), (S.OP_CLOSE,),
-                   (0x3C, ('u8', 0), ('u8', 4), msg['recv'] + 3, 0xFB, 0, 0),
-                   (0x3E,), (S.OP_JUMP, ('to', hook + 14))]
+        # as retail gives the shoes: close Mom's balloon (0x3E), item, fanfare, message, wait for the fanfare and
+        # for A (0x4B), close; then her next line in a balloon of its own
+        program = [(OP_BALLOON, ('u8', 0), ('u8', 4), MSG_SHOES_EXPLAINED, 0xFB, 0, 0), (OP_BALLOON_CLOSE,)]
+        for item, recv in ((ITEM_ENDLESS_REPEL, msg['recv']), (ITEM_EXP_ALL, msg['recv'] + 2)):
+            program += [(OP_ADD_ITEM, item, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
+                        (S.OP_MESSAGE, recv, 2), (OP_FANFARE_WAIT,), (OP_WAIT_KEY,), (S.OP_CLOSE,),
+                        (OP_BALLOON, ('u8', 0), ('u8', 4), recv + 1, 0xFB, 0, 0), (OP_BALLOON_CLOSE,)]
+        program += [(S.OP_JUMP, ('to', hook + 14))]
         code = S.assemble(at, program)
         assert code[:12] == explained
         new = sf.append(code)
