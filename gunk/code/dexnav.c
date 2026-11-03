@@ -2,8 +2,11 @@
    species of the route you haven't caught; it stays the target until you switch with L+R (the next species of the
    route). Searching for the same species again and again builds a chain: each link rerolls the personality value
    once more for a shiny (up to 40), and chains of 10, 20 and 30 give 1, 2 and 3 perfect IVs. Encounters stay
-   legal: species, form and level come from the route's own grass slot, the game generates the Pokémon as for any
-   wild one, and a Gen 5 personality value is an independent random number.
+   legal: one of the target's grass slots (with the slots' own odds, as each has its own level) is made into the
+   encounter by the game's own code (level from the slot's range,
+   its form rule, the lead's Pressure/Hustle/Vital Spirit level boost), the game generates the Pokémon as for any
+   wild one, and a Gen 5 personality value is an independent random number (shininess comes from it alone, so the
+   IVs set afterwards can't change it).
 
    Field overlay (21):
    - DexNav_Input runs with the field's per-frame input (field.c) and notes R (and L).
@@ -47,6 +50,8 @@ struct EncRecord {           /* what the slot pick fills in, 20 bytes each */
 #define FieldSys_GetEncount ((void *(*)(void *))(0x02188CE8 | 1))
 #define Encount_Try ((u32 (*)(void *, u32))(0x021A9F40 | 1))
 #define Encount_PickSlots ((u32 (*)(const u8 *, void *, void *, struct EncRecord *))(0x021A954C | 1))
+#define Encount_SlotRecord ((void (*)(const struct EncSlot *, struct EncRecord *))(0x021A9B00 | 1))
+#define Encount_LeadLevel ((void (*)(void *, const struct EncSlot *, struct EncRecord *))(0x021A9BE8 | 1))
 #define Encount_RollPid ((u32 (*)(u8 *, void *, struct EncRecord *))(0x021A9D30 | 1))
 #define Encount_CreateMon ((void (*)(void *, void *, struct EncRecord *))(0x021A96B8 | 1))
 #define PP_Put ((void (*)(void *, u32, u32))(0x02017E40 | 1))
@@ -167,6 +172,29 @@ u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
     return started ? started : StepEncount(state, x, fieldSys);
 }
 
+/* one of the target's grass slots, with the slots' own odds (each slot has its own level) */
+static int TargetSlot(const u8 *table, u16 species)
+{
+    static const u8 rate[ENC_SLOTS] = { 20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1 };
+    u32 total = 0, roll;
+    int i;
+
+    for (i = 0; i < ENC_SLOTS; i++)
+        if (SlotSpecies(table, i) == species)
+            total += rate[i];
+    if (!total)
+        return -1;
+    roll = Random() * total >> 16;  /* Random() is 16 bits */
+    for (i = 0; i < ENC_SLOTS; i++) {
+        if (SlotSpecies(table, i) != species)
+            continue;
+        if (roll < rate[i])
+            return i;
+        roll -= rate[i];
+    }
+    return -1;
+}
+
 u32 Gunk_DexNav_PickSlots(const u8 *table, void *params, void *x, struct EncRecord *out)
 {
     u32 found = Encount_PickSlots(table, params, x, out);
@@ -174,13 +202,12 @@ u32 Gunk_DexNav_PickSlots(const u8 *table, void *params, void *x, struct EncReco
 
     if (!found || !sTarget)
         return found;
-    i = SlotOf(table, sTarget);
-    if (i >= 0) {
-        const struct EncSlot *slot = (const struct EncSlot *)(table + ENC_GRASS) + i;
+    i = TargetSlot(table, sTarget);
+    if (i >= 0) {  /* as FUN_overlay_d_21__021a9c58 does with the slot it rolled */
+        const struct EncSlot *slots = (const struct EncSlot *)(table + ENC_GRASS);
 
-        out[0].species = sTarget;
-        out[0].form = slot->species >> 11;
-        out[0].level = slot->min;
+        Encount_SlotRecord(slots + i, &out[0]);
+        Encount_LeadLevel(params, slots, &out[0]);
     }
     return found;
 }
