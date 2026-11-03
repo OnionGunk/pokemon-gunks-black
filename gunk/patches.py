@@ -317,6 +317,17 @@ def exp_bar_x2(rom):
     rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
 
 
+def quick_run(rom):
+    """Quick Run: R in a battle's action menu runs (gunk/code/battle.c). In the bottom screen's button handler
+    (FUN_overlay_d_94__02202dc4) the touch test `ldr r0, [r0]; blx FUN_02035c08` becomes `adds r1, r4, #0;
+    bl Gunk_BattleTouch`: the wrapper gets the touch rects' holder and the handler's state (its menu at +0x58)."""
+    code = bytearray(rom.overlay(OVL_BATTLE_VIEW))
+    base = rom.overlay_base(OVL_BATTLE_VIEW)
+    site = 0x02202E82
+    patch(code, site - 2 - base, '0068' + '32f6c2ee', '211c' + thumb_bl(site, code_syms['Gunk_BattleTouch']))
+    rom.replace_overlay(OVL_BATTLE_VIEW, bytes(code))
+
+
 OVL_SUMMARY = 131  # at 0x021D4240
 SUMMARY_STAT_READS = [0x021DA0EC, 0x021DA140, 0x021DA19E, 0x021DA1FC, 0x021DA25A, 0x021DA2B8, 0x021DA316]
 
@@ -768,6 +779,6 @@ def followers(rom):
 
 
 PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
-           code_home, options_instant, exp_bar_x2, summary_iv_ev, script_command, repel_prompt,
+           code_home, options_instant, exp_bar_x2, quick_run, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
            dexnav, followers]
