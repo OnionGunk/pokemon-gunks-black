@@ -162,3 +162,54 @@ void Gunk_TouchUpdate(u8 *ui)
     if (sFrame > sTaps[2].frame)
         sFrame = 0;
 }
+
+/* Quick Ball's line on the action prompt: in a wild battle with a ball in the bag, "What will X do?" gets a second
+   line "L: <ball> x<count>" (message MSG_WHAT_WILL_BALL, added to a/0/0/2 #15: the ball name tag reads argument 1,
+   the 2-digit number argument 2). Gunk_ActionPrompt replaces FUN_overlay_d_93__021ce0f8, which builds the prompt's
+   message: kind 1 (standard), message 0x45 with the Pokémon's battle slot, or 0x46 with the player for a link
+   battle. */
+#define BtlMain_Competitor ((u32 (*)(void *))(0x021B8588 | 1))
+#define BtlStr_Setup ((void (*)(void *, u32, u32))(0x021EAF18 | 1))
+#define BtlStr_AddArg ((void (*)(void *, u32))(0x021EAF50 | 1))
+#define BtlStr_Finish ((void (*)(void *, u32))(0x021EAF78 | 1))
+#define BattleMon_GetBattleSlot ((u32 (*)(void *))(0x021D5440 | 1))
+#define COMPETITOR_WILD 0
+#define COMPETITOR_LINK 3
+#define CLIENT_PLAYER 0x1A6    /* u8 */
+#define STR_STANDARD 1
+#define MSG_WHAT_WILL 0x45
+#define MSG_WHAT_WILL_PLAYER 0x46
+#define MSG_WHAT_WILL_BALL 200
+#define COUNT_MAX 99
+
+static u32 BallCount(u16 item)
+{
+    const u16 *pocket = (const u16 *)SaveData_GetBlock(SaveData_Ptr, SAVE_BLOCK_BAG);
+    int i;
+
+    for (i = 0; i < POCKET_ITEMS; i++)
+        if (pocket[i * 2] == item)
+            return pocket[i * 2 + 1];
+    return 0;
+}
+
+void Gunk_ActionPrompt(void **client, void *mon, void *param)
+{
+    u32 competitor = BtlMain_Competitor(*client);
+    u32 count;
+
+    if (competitor == COMPETITOR_LINK) {
+        BtlStr_Setup(param, STR_STANDARD, MSG_WHAT_WILL_PLAYER);
+        BtlStr_AddArg(param, ((u8 *)client)[CLIENT_PLAYER]);
+    } else if (competitor == COMPETITOR_WILD && BallSlot() >= 0) {
+        count = BallCount(sBall);
+        BtlStr_Setup(param, STR_STANDARD, MSG_WHAT_WILL_BALL);
+        BtlStr_AddArg(param, BattleMon_GetBattleSlot(mon));
+        BtlStr_AddArg(param, sBall);
+        BtlStr_AddArg(param, count > COUNT_MAX ? COUNT_MAX : count);
+    } else {
+        BtlStr_Setup(param, STR_STANDARD, MSG_WHAT_WILL);
+        BtlStr_AddArg(param, BattleMon_GetBattleSlot(mon));
+    }
+    BtlStr_Finish(param, 0);
+}

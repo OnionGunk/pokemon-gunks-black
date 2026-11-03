@@ -325,6 +325,9 @@ def arm_blx(src, dst):
 
 
 TP_MAIN_UPDATE = 0x02035A68  # FUN_02035a60, once a frame: bl FUN_020358a0, the touch panel's update
+BATTLE_MSG = 15  # a/0/0/2: the battle's standard messages
+BATTLE_MSG_BALL_PROMPT = 200  # the message added for the prompt with Quick Ball's line (battle.c MSG_WHAT_WILL_BALL)
+ACTION_PROMPT_CALLS = (0x021CE576, 0x021CF15E)  # bl FUN_overlay_d_93__021ce0f8, the action prompt's message
 
 
 def quick_run(rom):
@@ -341,6 +344,20 @@ def quick_run(rom):
     arm9 = bytearray(rom.arm9())
     patch(arm9, TP_MAIN_UPDATE - ARM9, '8cffffeb', arm_blx(TP_MAIN_UPDATE, code_syms['Gunk_TouchUpdate']))
     rom.replace_arm9(bytes(arm9))
+
+    # the action prompt's second line: "L: <ball> x<count>" (tags: 0x10C the Pokémon, 0x109 an item, 0x201 two digits)
+    def prompt(texts):
+        assert len(texts) == BATTLE_MSG_BALL_PROMPT and text5.to_str(texts[0x45][0]).startswith('What will ')
+        tag = lambda kind, arg: [0xF000, kind, 1, arg]
+        line = (text5.chars('What will ') + tag(0x10C, 0) + text5.chars(' do?\nL: ') + tag(0x109, 1) +
+                text5.chars(' x') + tag(0x201, 2))
+        texts.append((line, texts[0x45][1]))
+    _edit_text(rom, 'a/0/0/2', BATTLE_MSG, prompt)
+    code = bytearray(rom.overlay(OVL_BATTLE))
+    base = rom.overlay_base(OVL_BATTLE)
+    for site in ACTION_PROMPT_CALLS:
+        patch(code, site - base, thumb_bl(site, 0x021CE0F8), thumb_bl(site, code_syms['Gunk_ActionPrompt']))
+    rom.replace_overlay(OVL_BATTLE, bytes(code))
 
 
 OVL_SUMMARY = 131  # at 0x021D4240
