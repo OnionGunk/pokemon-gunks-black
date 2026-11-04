@@ -9,7 +9,8 @@ the same zone on the same tile.
 
 Milestones: mom_gifts (Route 2 gate: the Endless Repel and Exp. All), cut (the Route 2 tree), surf (zone 370's
 shore, with A), strength (zone 224's cave, Tepig), pinwheel (the busiest map, with the follower out); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
-nacrene, castelia, nimbasa.
+nacrene, castelia, nimbasa; and, by way of to_leader(), driftveil, mistralton, icirrus, opelucid.
+MS_ROM=vanilla runs them on the base game.
 """
 import os
 import struct
@@ -35,6 +36,7 @@ SAVE_RAM = 0x0221BBAC  # the save as the game keeps it in RAM: the blocks at the
 MMDL_LIST, MMDL_SIZE, MMDL_COUNT = 0x022521E4, 0x100, 64
 PLAYER = 0xFF
 PARTY, BAG, VARS_FLAGS, BADGES, REPEL = 26, 25, 45, 52, 56  # save blocks
+FLAGS = 0x27C  # the story flags' offset in the vars block
 KEY_POCKET, TM_POCKET = 0x4D8, 0x624
 # X menu, SAVE (right column once the menu has POKéMON), YES, then the confirmation
 SAVE_PRESSES = ['press X 4', 'wait 60', 'touch 192 93', 'wait 120', 'press A 4', 'wait 60', 'press A 4', 'wait 900']
@@ -133,6 +135,12 @@ class Save:
     def var(self, var, value):
         return self.edit(VARS_FLAGS, lambda b: struct.pack_into('<H', b, (var - 0x4000) * 2, value))
 
+    def flag(self, flag):
+        """Set a story flag: one bit each from +0x27C of the vars block (ARM9 0x02014388)."""
+        def f(b):
+            b[FLAGS + flag // 8] |= 1 << flag % 8
+        return self.edit(VARS_FLAGS, f)
+
     def repel(self, steps):
         return self.edit(REPEL, lambda b: b.__setitem__(0x31, steps))
 
@@ -153,6 +161,19 @@ class Save:
             b[:len(out)] = out
             struct.pack_into('<HxxH', b, 0x20, x, z)
             struct.pack_into('<HxxH', b, 0x26, x, z)
+        return self.edit(lib.POSITION, pos).edit(lib.OBJECTS, objs)
+
+    def move(self, x, z, height):
+        """Continue at tile (x, z) of the zone the save is in, keeping every saved object (the zone's people come
+        back as they were): for a save made in the game inside a zone with a puzzle between its door and its leader."""
+        def pos(b):
+            struct.pack_into('<iii', b, 0x84, (x << 16) | 0x8000, height << 12, (z << 16) | 0x8000)
+
+        def objs(b):
+            for k in range(64):
+                if struct.unpack_from('<H', b, k * 0x50 + 8)[0] == PLAYER and b[k * 0x50:(k + 1) * 0x50] != bytes(0x50):
+                    struct.pack_into('<HxxH', b, k * 0x50 + 0x20, x, z)
+                    struct.pack_into('<HxxH', b, k * 0x50 + 0x26, x, z)
         return self.edit(lib.POSITION, pos).edit(lib.OBJECTS, objs)
 
     def write(self, name):
@@ -490,6 +511,20 @@ def pinwheel(g):
 # Each gym starts from the starter save with the badges before it and the test battler (battler()), put outside the
 # gym's door (tools/zones.py lists a zone's warps: the door is the warp tile, the save goes on the tile in front).
 
+def to_leader(g, name, zone, x, z, height):
+    """For a gym whose puzzle is no part of what's tested: inside the door, save in the game (so the gym's people are
+    in the save), move the player in that save to tile (x, z) in front of the leader, and Continue there."""
+    g.run('wait 60', *['press B 4', 'wait 40'] * 4, *SAVE_PRESSES)
+    data = g.flush()
+    b = lib.block(data, suite.newest(data)[0], lib.POSITION)
+    check(struct.unpack_from('<H', b, 0x80)[0] == zone, f'{name}: the save inside the gym did not take')
+    inside = os.path.join(OUT, f'_ms_{name}_inside.sav')
+    open(inside, 'wb').write(data)
+    suite.boot_continue(g, saveram=Save(inside).move(x, z, height).write(f'_ms_{name}_leader'))
+    g.run('wait 30')
+    check(player(g) == (x, z), f'{name}: moved to {(x, z)} but continued at {player(g)}')
+
+
 def gym_save(badge_count):
     return Save().party(battler()).badges((1 << badge_count) - 1)
 
@@ -644,9 +679,76 @@ def nimbasa(g):
     save_reboot_same(g, 'nimbasa')
 
 
+# Driftveil, Mistralton, Icirrus and Opelucid: these test the leader's battle, the badge and the save, not the puzzle.
+# Each goes in by the door for real, then to_leader() moves the player to the leader's room (see docs: the Driftveil
+# lifts, the Mistralton cannons). Heights are the tile layer's, or the leader's own (Clay's floor is at y -62).
+
+DRIFTVEIL_GYM = 61  # zone 97; its tile layer is Clay's floor only
+
+
+def leader(g, name, badge, face='Up'):
+    g.run(f'press {face} 16', 'wait 40')
+    talk_and_fight(g, face, got_badge(badge))
+    settle(g)
+    save_reboot_same(g, name)
+
+
+@milestone
+def driftveil(g):
+    """Driftveil Gym: door at (212, 400) in zone 96, the lobby (zone 98) lift panel at (9, 3) down to zone 97; Clay
+    at (15, 5) on the bottom floor; the Quake Badge."""
+    path = gym_save(4).put(96, 212, 401).write('_ms_driftveil')
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 120')
+    through_door(g, 'Up')
+    walk_to(g, (9, 4), matrix=180)
+    g.run('press Up 4', 'wait 20', *['press A 4', 'wait 120'] * 8, 'wait 300')
+    check(player(g) == (17, 25), f'driftveil: the lobby lift left the player at {player(g)}')
+    # Clay's floor doesn't draw when a save continues on it: go onto lift 5 at the top (y 50) and ride it down.
+    # A lift panel answers only when faced from the south (from the tile below it, facing Up).
+    to_leader(g, 'driftveil', 97, 16, 21, 50 * 16)
+    g.run('press Up 4', 'wait 20', 'press A 4', *['wait 90', 'press A 4'] * 3, 'wait 600')
+    walk_to(g, (15, 7), matrix=DRIFTVEIL_GYM, rounds=20)
+    leader(g, 'driftveil', 4)
+
+
+@milestone
+def mistralton(g):
+    """Mistralton Gym: door at (78, 268) in zone 107 (the guard in front of it leaves once flag 686 is set, at the
+    Celestial Tower); Skyla at (15, 5); the Jet Badge."""
+    path = gym_save(5).flag(686).put(107, 78, 269).write('_ms_mistralton')
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 120')
+    through_door(g, 'Up')
+    to_leader(g, 'mistralton', 108, 15, 7, 260)
+    leader(g, 'mistralton', 5)
+
+
+@milestone
+def icirrus(g):
+    """Icirrus Gym: door at x 170-172, z 167 in zone 113; Brycen at (17, 14); the Freeze Badge."""
+    path = gym_save(6).put(113, 171, 168).write('_ms_icirrus')
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 120')
+    through_door(g, 'Up')
+    to_leader(g, 'icirrus', 114, 17, 16, 586)
+    leader(g, 'icirrus', 6)
+
+
+@milestone
+def opelucid(g):
+    """Opelucid Gym: door at (405, 144) in zone 120; Drayden at (27, 2); the Legend Badge."""
+    path = gym_save(7).put(120, 405, 145).write('_ms_opelucid')
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 120')
+    through_door(g, 'Up')
+    to_leader(g, 'opelucid', 121, 27, 4, 1257)
+    leader(g, 'opelucid', 7)
+
+
 def main():
     args = sys.argv[1:]
-    g = Game('gunk')
+    g = Game(os.environ.get('MS_ROM', 'gunk'))
     g.counter = suite.FRAME_COUNTER
     if args == ['starter'] or not os.path.exists(STARTER):
         print('== starter', flush=True)
