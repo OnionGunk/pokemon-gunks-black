@@ -712,10 +712,10 @@ def move_tutor(rom):
 def dexnav(rom):
     """DexNav (gunk/code/dexnav.c): R in tall grass meets the chosen Pokémon of this route (first the first you
     haven't caught; L+R switches), from its own grass slot, and repeated searches build a chain for shiny odds and
-    perfect IVs. Hooks in the field overlay: the per-frame
+    perfect IVs; running from a wild battle ends the chain. Hooks in the field overlay: the per-frame
     input routine in its table at 0x021D8900, the per-frame step-encounter check (FUN_overlay_d_21__0218b208,
     called twice), the encounter's slot pick (FUN_overlay_d_21__021a954c, called at 0x021AA048), its personality
-    roll and its building of the wild Pokémon."""
+    roll and its building of the wild Pokémon, and the shaking grass's encounter (the search uses Black's own)."""
     code = bytearray(rom.overlay(OVL_FIELD))
     base = rom.overlay_base(OVL_FIELD)
     patch(code, 0x021D8900 - base, 'f12d1a02', struct.pack('<I', code_syms['Gunk_FieldInput'] | 1).hex())
@@ -726,7 +726,15 @@ def dexnav(rom):
     for site, retail, sym in ((0x021A96D4, 0x021A9D30, 'Gunk_DexNav_Pid'),  # chains: shiny odds
                               (0x021AA4D8, 0x021A96B8, 'Gunk_DexNav_Create')):  # and perfect IVs
         patch(code, site - base, thumb_bl(site, retail), thumb_bl(site, code_syms[sym]))
+    site = 0x021AA9EA  # the shaking grass's encounter (FUN_overlay_d_21__021aa944) -> the wrapper, for the search's
+    patch(code, site - base, thumb_bl(site, 0x021A9F40), thumb_bl(site, code_syms['Gunk_DexNav_EffectEncount']))
     rom.replace_overlay(OVL_FIELD, bytes(code))
+    # the wild battle event (script overlay) reads the battle's result: through the wrapper, which ends a chain on a run
+    code = bytearray(rom.overlay(OVL_SCRIPT))
+    site = 0x0216E744
+    patch(code, site - rom.overlay_base(OVL_SCRIPT), thumb_bl(site, 0x02012A44),
+          thumb_bl(site, code_syms['Gunk_DexNav_BattleResult']))
+    rom.replace_overlay(OVL_SCRIPT, bytes(code))
 
 
 MSG_FOLLOWER_TALK = 14  # a/0/0/3 #263, after the Repel prompt's message
@@ -778,8 +786,6 @@ def dexnav_got_away(rom):
 
 
 FOLLOWERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
-DEXNAV_PATCH_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dexnav', 'patch.png')  # shaking grass
-DEXNAV_PATCH_CODE = 0x12E1  # its object code, after the Gen 5 followers' (dexnav.c)
 # Gen 5 species that fly or float: their sprite parameters take the flag Black gives its own flyers (byte 3 0x0B)
 FOLLOWERS_FLYING = {517, 518, 519, 520, 521, 527, 528, 561, 562, 566, 567, 577, 578, 579, 580, 581, 582, 583, 584, 587,
                     592, 593, 599, 600, 601, 602, 603, 604, 608, 609, 615, 627, 628, 629, 630, 635, 637, 641, 642, 645}
@@ -809,11 +815,8 @@ def gen5_follower_sprites(rom):
     files = [os.path.join(FOLLOWERS_DIR, n) for n in sorted(os.listdir(FOLLOWERS_DIR),
                                                             key=lambda n: (n.split('.')[0].split('-')[0], n))
              if n.endswith('.png')]
-    for path in files + [DEXNAV_PATCH_PNG]:  # the DexNav patch last: dexnav.c DEXNAV_PATCH_CODE
-        if path == DEXNAV_PATCH_PNG:
-            species, variant = 0, 'patch'
-        else:
-            species, _, variant = os.path.basename(path)[:-4].partition('-')
+    for path in files:
+        species, _, variant = os.path.basename(path)[:-4].partition('-')
         img = Image.open(path)
         size = img.height
         entry, tex = templates[size]
@@ -831,7 +834,7 @@ def gen5_follower_sprites(rom):
         tex[base + pals[0]['off']:base + pals[0]['off'] + 32] = pal
         sprites.append((int(species), variant, code, bytes(tex), entry))
         code += 1
-    assert code <= 0x2000 and sprites[-1][2] == DEXNAV_PATCH_CODE
+    assert code <= 0x2000
     first = textures.add_files([s[3] for s in sprites])
     new_entries, table = [], b''
     for i, (species, variant, code, _, entry) in enumerate(sprites):
@@ -840,8 +843,6 @@ def gen5_follower_sprites(rom):
         struct.pack_into('<H', entry, 0x10, first + i)
         entry[3] = 0x0B if species in FOLLOWERS_FLYING else 0x0A
         new_entries.append(bytes(entry))
-        if not species:
-            continue  # the DexNav patch: no follower
         gender = 1 if variant == 'f' else 0 if os.path.exists(os.path.join(FOLLOWERS_DIR, f'{species}-f.png')) else 2
         form = int(variant) if variant.isdigit() else 0
         table += struct.pack('<4H', species, gender, form, code)
