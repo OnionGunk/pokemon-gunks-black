@@ -9,7 +9,7 @@ the same zone on the same tile.
 
 Milestones: mom_gifts (Route 2 gate: the Endless Repel and Exp. All), cut (the Route 2 tree), surf (zone 370's
 shore, with A), strength (zone 224's cave, Tepig); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
-nacrene, castelia.
+nacrene, castelia, nimbasa.
 """
 import os
 import struct
@@ -558,6 +558,63 @@ def castelia(g):
         shut -= opened
     talk_and_fight(g, 'Up', got_badge(2))
     save_reboot_same(g, 'castelia')
+
+
+NIMBASA_LOBBY, NIMBASA_GYM = 107, 57  # zones 64, 63
+# Four roller-coaster cars (overlay 39) join the platforms; a car serves the stations in overlay 39's table at
+# 0x021F4C58 (0x021F4C0C: station -> car), and the floor switch for car k (script file 126: command 0x180(k)) changes
+# where it goes. A at a station calls the car, A and Up board it, it parks two tiles above a station and Down steps out.
+NIMBASA_STATIONS = {(14, 39), (22, 39), (16, 27), (16, 15), (41, 40), (49, 40), (34, 8), (22, 8), (5, 39)}
+NIMBASA_ROUTE = [  # (station, the car's switch to step on first, where the ride must stop)
+    ((14, 39), None, (22, 39)), ((22, 39), (29, 33), (16, 27)), ((16, 15), (13, 16), (41, 40)), ((49, 40), None, (34, 8))]
+
+
+def coaster(g, station):
+    """Call the car to the station, board it and ride to where it parks; Down steps out. A trainer who sees the player
+    on the way to the car is fought (the walk breaks off), then the car is called again."""
+    for _ in range(4):
+        walk_to(g, station, matrix=NIMBASA_GYM, rounds=30)
+        g.run('press Up 16', 'wait 30', 'press A 4', 'wait 700')
+        for _ in range(10):
+            g.run('press A 4', 'wait 80', 'press Up 16', 'wait 40')
+            if player(g) != station:
+                break
+        if player(g)[1] <= station[1] - 2:
+            break
+        g.run(*['press B 4', 'wait 40'] * 6, *BATTLE_ROUND * 3, *['press B 4', 'wait 50'] * 6)
+    else:
+        raise TestFailure(f'nimbasa: no car came to {station}')
+    seen = []
+    for _ in range(80):
+        g.run('wait 40')
+        seen.append(player(g))
+        if len(seen) > 4 and len(set(seen[-4:])) == 1:
+            if (seen[-1][0], seen[-1][1] + 2) in NIMBASA_STATIONS:
+                break
+            g.run(*['press B 4', 'wait 40'] * 6, *BATTLE_ROUND * 2)  # stopped on the track: a trainer
+            seen = []
+    g.run('press Down 16', 'wait 60')
+    return player(g)
+
+
+@milestone
+def nimbasa(g):
+    """Nimbasa Gym: through the lobby (door at x 436, z 460-464 in zone 62, entered moving Right) to the coasters, the
+    four rides of NIMBASA_ROUTE to the top platform, Elesa; the Bolt Badge."""
+    path = gym_save(3).put(62, 435, 462).write('_ms_nimbasa')
+    suite.boot_continue(g, saveram=path)
+    through_door(g, 'Right')
+    walk_to(g, (39, 11), matrix=NIMBASA_LOBBY)
+    through_door(g, 'Up')
+    for station, switch, stop in NIMBASA_ROUTE:
+        if switch:
+            walk_to(g, switch, matrix=NIMBASA_GYM, rounds=30)
+            g.run(*['press B 4', 'wait 40'] * 4)
+        end = coaster(g, station)
+        check(end == stop, f'nimbasa: the car from {station} stopped at {end}, not {stop}')
+    walk_to(g, (28, 5), matrix=NIMBASA_GYM, rounds=30)
+    talk_and_fight(g, 'Up', got_badge(3))
+    save_reboot_same(g, 'nimbasa')
 
 
 def main():
