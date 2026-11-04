@@ -8,7 +8,7 @@ buttons, its own check must hold, and the game is saved, power-cycled and contin
 the same zone on the same tile.
 
 Milestones: mom_gifts (Route 2 gate: the Endless Repel and Exp. All), cut (the Route 2 tree), surf (zone 370's
-shore, with A), strength (zone 224's cave, Tepig); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
+shore, with A), strength (zone 224's cave, Tepig), pinwheel (the busiest map, with the follower out); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
 nacrene, castelia, nimbasa.
 """
 import os
@@ -31,7 +31,8 @@ from ndsrom import Rom  # noqa: E402
 MILESTONES = []
 STARTER = os.path.join(OUT, '_starter.sav')
 SAVE_RAM = 0x0221BBAC  # the save as the game keeps it in RAM: the blocks at their flash offsets
-MMDL_LIST, MMDL_SIZE, MMDL_COUNT = 0x022521E4, 0x100, 24  # field objects: status +0, id +8, tile +0x3C/+0x40
+# field objects: status +0, id +8, tile +0x3C/+0x40. Pinwheel Forest fills 47 slots (the player is the 46th).
+MMDL_LIST, MMDL_SIZE, MMDL_COUNT = 0x022521E4, 0x100, 64
 PLAYER = 0xFF
 PARTY, BAG, VARS_FLAGS, BADGES, REPEL = 26, 25, 45, 52, 56  # save blocks
 KEY_POCKET, TM_POCKET = 0x4D8, 0x624
@@ -457,6 +458,32 @@ def strength(g):
     check(moved, f'strength: nothing moved (objects {after}, player {player(g)})')
     log(f'boulder moved: {moved}')
     save_reboot_same(g, 'strength')
+
+
+FOLLOWER = 0xF5  # the follower's object ID
+
+
+@milestone
+def pinwheel(g):
+    """Pinwheel Forest (zone 155, door at x 584 in zone 154, entered moving Left) loads 45 people: with the player and
+    the follower that is 47 field objects, the most of any map. The follower must be out once, no ID twice, and the
+    game must keep running, before and after a save, power cycle and Continue."""
+    path = gym_save(2).put(154, 585, 588).write('_ms_pinwheel')
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 120')
+    through_door(g, 'Left')
+    g.run(*['press Left 16', 'wait 20'] * 3, 'wait 60')  # the follower comes out on the first steps
+
+    def crowd(when):
+        ids = [o[0] for o in objects(g)]
+        check(ids.count(FOLLOWER) == 1, f'pinwheel {when}: the follower is out {ids.count(FOLLOWER)} times')
+        check(len(ids) == len(set(ids)), f'pinwheel {when}: an object ID is used twice')
+        g.alive(60)
+        log(f'{when}: {len(ids)} objects')
+    crowd('in')
+    save_reboot_same(g, 'pinwheel')
+    g.run(*['press Right 16', 'wait 20', 'press Left 16', 'wait 20'], 'wait 60')
+    crowd('after Continue')
 
 
 # --- gyms ---------------------------------------------------------------------------------------
