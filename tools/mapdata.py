@@ -3,7 +3,8 @@
     .venv/Scripts/python tools/mapdata.py <rom> surf     # walkable tiles beside water, at the water's height
 
 The outdoor world is matrix 0 (a/0/0/9; a zone header's u16 at +4 names its matrix): u32 type 1, u16 width, u16
-height in 32x32-tile chunks, then width*height u32 map numbers and the same of zone numbers. A map (a/0/0/8, "WB")
+height in 32x32-tile chunks, then width*height u32 map numbers and the same of zone numbers (type 0, a building's
+matrix, has no zone numbers). A map (a/0/0/8, "WB")
 lists its sections after a u16 count: model, tile layer, collision mesh. The tile layer is u16 32, u16 32, then 8
 bytes per tile: u16 at +2 the height layer, u8 at +6 the behaviour (0x80 walkable, 0x81 wall, 0x16 water, 0x24 tall
 grass, among others).
@@ -20,10 +21,11 @@ WALK, WALL, WATER, GRASS = 0x80, 0x81, 0x16, 0x24
 class World:
     def __init__(self, rom, matrix=0):
         mx = Narc(rom.file(rom.file_id('a/0/0/9'))).file(matrix)
-        self.w, self.h = struct.unpack_from('<HH', mx, 4)
+        kind, self.w, self.h = struct.unpack_from('<IHH', mx, 0)
         n = self.w * self.h
         self.maps = struct.unpack_from(f'<{n}I', mx, 8)
-        self.zones = struct.unpack_from(f'<{n}I', mx, 8 + n * 4)
+        # type 1 adds a zone per chunk; type 0 (buildings) has none: their tiles say zone None
+        self.zones = struct.unpack_from(f'<{n}I', mx, 8 + n * 4) if kind == 1 else (None,) * n
         self.narc = Narc(rom.file(rom.file_id('a/0/0/8')))
         self._layers = {}
 

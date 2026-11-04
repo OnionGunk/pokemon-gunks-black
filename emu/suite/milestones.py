@@ -8,7 +8,8 @@ buttons, its own check must hold, and the game is saved, power-cycled and contin
 the same zone on the same tile.
 
 Milestones: mom_gifts (Route 2 gate: the Endless Repel and Exp. All), cut (the Route 2 tree), surf (zone 370's
-shore, with A), strength (zone 224's cave, Tepig). The gyms through the Champion come next, one by one.
+shore, with A), strength (zone 224's cave, Tepig); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
+nacrene, castelia.
 """
 import os
 import struct
@@ -22,6 +23,7 @@ sys.path[:0] = [SUITE, os.path.join(os.path.dirname(os.path.dirname(SUITE)), 'to
 import lib  # noqa: E402
 import mapdata  # noqa: E402
 import pk5  # noqa: E402
+import zones  # noqa: E402
 import suite  # noqa: E402
 from lib import OUT, ROOT, Game, TestFailure, check  # noqa: E402
 from ndsrom import Rom  # noqa: E402
@@ -40,6 +42,8 @@ ITEM_ENDLESS_REPEL, ITEM_EXP_ALL = 426, 427
 SPECIES_TEPIG, SPECIES_OSHAWOTT = 498, 501
 MOVE_TACKLE, MOVE_SURF = 33, 57
 EXP = {5: 125, 50: 117360}  # medium-slow
+# a test-only battler: Mewtwo, Lv. 100 (slow growth), every stat 999, Dark Pulse first (no type is immune to it)
+SPECIES_MEWTWO, MOVE_DARK_PULSE, EXP_SLOW_100 = 150, 399, 1250000
 
 
 def milestone(fn):
@@ -53,23 +57,46 @@ def log(msg):
 
 # --- save edits -----------------------------------------------------------------------------
 
-def make_mon(species, level=5, move2=0, pid=0x12345678):
-    """A party Pokémon (PK5, 220 bytes): Tackle (and move2), OT AAAAAA, some IVs."""
+TRAINER = 27  # save block: +4 name (8 UTF-16 units, 0xFFFF-terminated), +0x14 trainer ID, +0x16 secret ID
+
+
+def trainer():
+    """(TID, SID, name bytes with terminator) of the starter save's player."""
+    if not os.path.exists(STARTER):
+        return 12345, 54321, 'AAAAAAA'.encode('utf-16le') + b'\xff\xff'
+    b = lib.block(open(STARTER, 'rb').read(), 0, TRAINER)
+    name = b[4:20]
+    end = next((i for i in range(0, 16, 2) if name[i:i + 2] == b'\xff\xff'), 14) + 2
+    return *struct.unpack_from('<HH', b, 0x14), bytes(name[:end])
+
+
+def make_mon(species, level=5, move2=0, pid=0x12345678, moves=None, exp=None, stats=None):
+    """A party Pokémon (PK5, 220 bytes): Tackle (and move2) or these moves, the starter save's player as OT (a foreign
+    OT makes a high level disobey: "began to nap!"), some IVs; stats (HP, Atk, Def, Spe, SpA, SpD) are the party copy
+    the game battles with."""
+    tid, sid, ot = trainer()
     p = bytearray(220)
     struct.pack_into('<I', p, 0, pid)
-    struct.pack_into('<HHHHI', p, 0x08, species, 0, 12345, 54321, EXP[level])
+    struct.pack_into('<HHHHI', p, 0x08, species, 0, tid, sid, EXP[level] if exp is None else exp)
     p[0x14], p[0x15], p[0x17] = 70, 1, 2  # friendship, ability 1, language
-    struct.pack_into('<4H', p, 0x28, MOVE_TACKLE, move2, 0, 0)
-    p[0x30] = 35
+    moves = moves or (MOVE_TACKLE, move2, 0, 0)
+    struct.pack_into('<4H', p, 0x28, *moves)
+    for k, m in enumerate(moves):
+        p[0x30 + k] = 35 if m else 0
     struct.pack_into('<I', p, 0x38, 0x0F7BDEF)
     name = 'GUNK'.encode('utf-16le') + b'\xff\xff'
     p[0x48:0x48 + len(name)] = name
     p[0x5F] = 21  # Black
-    ot = 'AAAAAA'.encode('utf-16le') + b'\xff\xff'
     p[0x68:0x68 + len(ot)] = ot
     p[0x83], p[0x84] = 4, 5  # Poké Ball, met level
-    struct.pack_into('<IBBHHHHHHH', p, 0x88, 0, level, 0, 20, 20, 10, 10, 10, 10, 10)
+    hp, *rest = stats or (20, 10, 10, 10, 10, 10)
+    struct.pack_into('<IBBHHHHHHH', p, 0x88, 0, level, 0, hp, hp, *rest)
     return pk5.encrypt(p)
+
+
+def battler():
+    return make_mon(SPECIES_MEWTWO, 100, moves=(MOVE_DARK_PULSE, MOVE_SURF, 0, 0), exp=EXP_SLOW_100,
+                    stats=(999,) * 6, pid=0x2468ACE0)
 
 
 class Save:
@@ -108,9 +135,12 @@ class Save:
     def repel(self, steps):
         return self.edit(REPEL, lambda b: b.__setitem__(0x31, steps))
 
-    def put(self, zone, x, z, height=0):
-        """Continue at tile (x, z) of zone, standing at height (the tile layer's), with no saved objects but the
-        player's: the zone's own come back when a door loads it."""
+    def put(self, zone, x, z, height=None):
+        """Continue at tile (x, z) of zone, standing at height (the tile layer's, looked up when not given), with no
+        saved objects but the player's: the zone's own come back when a door loads it."""
+        if height is None:
+            height = world(zone_info().header(zone)[2]).tile(x, z)[1]
+
         def pos(b):
             struct.pack_into('<H', b, 0x80, zone)
             struct.pack_into('<iii', b, 0x84, (x << 16) | 0x8000, height << 12, (z << 16) | 0x8000)
@@ -173,21 +203,42 @@ def through_door(g, direction):
     raise TestFailure(f'no door {direction} of {start}')
 
 
-_world = None
+_rom, _worlds, _zones = None, {}, None
 
 
-def world():
-    global _world
-    if _world is None:
-        _world = mapdata.World(Rom(open(os.path.join(ROOT, 'build', 'gunk-black.nds'), 'rb').read()))
-    return _world
+def rom():
+    global _rom
+    if _rom is None:
+        _rom = Rom(open(os.path.join(ROOT, 'build', 'gunk-black.nds'), 'rb').read())
+    return _rom
 
 
+def zone_info():
+    global _zones
+    if _zones is None:
+        _zones = zones.Zones(rom())
+    return _zones
+
+
+def world(matrix=0):
+    """Matrix 0 is the outdoor world; a building's is its zone header's [2] (tools/zones.py)."""
+    if matrix not in _worlds:
+        _worlds[matrix] = mapdata.World(rom(), matrix)
+    return _worlds[matrix]
+
+
+# A battle turn without A (a walk's direction presses can leave the cursor on POKéMON, and A would open it): B out of
+# any message (B also advances text), then tap FIGHT and the first move (Dark Pulse on the battler) over and over. The
+# action menu can take 600+ frames to accept a tap, and a B between the two taps backs out of the move screen, so the
+# taps repeat densely with no B among them; on the move screen (128, 80) is an empty slot and on the action menu
+# (64, 40) is nothing, so a tap that comes early or late does nothing.
+BATTLE_ROUND = (['press B 4', 'wait 40'] * 2 + ['touch 128 80', 'wait 20', 'touch 64 40', 'wait 20'] * 16)
 STEPS = {(1, 0): 'Right', (-1, 0): 'Left', (0, 1): 'Down', (0, -1): 'Up'}
 
 
-def plan(start, goal, avoid):
-    w = world()
+def plan(start, goal, avoid, matrix=0):
+    """Outdoors a step keeps to one height layer (bridges); in a building stairs change it."""
+    w = world(matrix)
     prev, queue = {start: None}, deque([start])
     while queue:
         p = queue.popleft()
@@ -201,36 +252,73 @@ def plan(start, goal, avoid):
         for dx, dz in STEPS:
             n = (p[0] + dx, p[1] + dz)
             t = w.tile(*n)
-            if n in prev or n in avoid or not mapdata.walkable(t) or t[1] != w.tile(*p)[1]:
+            if n in prev or n in avoid or not mapdata.walkable(t) or (matrix == 0 and t[1] != w.tile(*p)[1]):
                 continue
             prev[n] = p
             queue.append(n)
     return None
 
 
-def walk_to(g, goal, avoid=()):
-    """Walk to tile goal by the map data, a few steps at a time. When the player doesn't move, a trainer or a
-    sign is talking or a battle started: A through it (FIGHT, the first move, A) and, if that keeps happening,
-    treat the next tile as blocked."""
-    blocked, stuck = set(avoid), 0
-    for _ in range(80):
+HONEY_HOLD = 300  # frames: the honey gives way to a push held this long (Castelia Gym)
+
+
+def walk_to(g, goal, avoid=(), matrix=0, rounds=80, honey=()):
+    """Walk to tile goal by the map data, a few steps at a time. When the player stops short, a trainer or a sign
+    is talking or a battle started: B through it (FIGHT, the first move, B); a tile the player fails to enter twice
+    is treated as blocked (a person, a curtain). A step into a honey tile is one hold of HONEY_HOLD frames: shorter
+    holds bounce the player back, longer ones walk on through the next open wall."""
+    blocked, fails = set(avoid), {}
+    for _ in range(rounds):
         p = player(g)
         if p == goal:
             return
-        moves = plan(p, goal, blocked)
+        moves = plan(p, goal, blocked, matrix)
+        if not moves and blocked != set(avoid):  # guessed wrong (a battle made it look blocked): forget the guesses
+            blocked, fails = set(avoid), {}
+            moves = plan(p, goal, blocked, matrix)
         check(moves, f'no path from {p} to {goal}')
-        g.run(*[f'press {d} 16' for d in moves[:4]], 'wait 10')
-        if player(g) != p:
-            stuck = 0
+        if os.environ.get('MS_VERBOSE'):
+            log(f'walk {p} -> {goal}: {"".join(m[0] for m in moves)} {g.shot("_ms_walk")}')
+        path, at = [], p
+        for m in moves[:4]:
+            dx, dz = {v: k for k, v in STEPS.items()}[m]
+            at = (at[0] + dx, at[1] + dz)
+            if at in honey and path:  # walk up to the honey; the push is a step of its own
+                break
+            path.append(at)
+            if at in honey:
+                break
+        pushing = path[-1] in honey
+        g.run(*[f'press {d} {HONEY_HOLD if pushing else 16}' for d in moves[:len(path)]], 'wait 10')
+        now = player(g)
+        if now == path[-1] or pushing and now != p:  # a push can carry the player a tile or two past the honey
             continue
-        g.run(*['press A 4', 'wait 40'] * 6,
-              *['touch 128 80', 'wait 60', 'touch 64 40', 'wait 300', 'press A 4', 'wait 60', 'press A 4', 'wait 60'] * 4)
-        stuck += 1
-        if stuck >= 2:
-            dx, dz = {v: k for k, v in STEPS.items()}[moves[0]]
-            blocked.add((p[0] + dx, p[1] + dz))
-            stuck = 0
+        stuck_at = path[path.index(now) + 1] if now in path else path[0] if now == p else None
+        g.run(*['press B 4', 'wait 40'] * 6, *BATTLE_ROUND * 4)
+        if stuck_at:
+            fails[stuck_at] = fails.get(stuck_at, 0) + 1
+            if fails[stuck_at] >= 2:
+                blocked.add(stuck_at)
     raise TestFailure(f'did not reach {goal}, at {player(g)}')
+
+
+def var(g, v):
+    return struct.unpack('<H', save_ram(g, VARS_FLAGS, (v - 0x4000) * 2, 2))[0]
+
+
+def badges(g):
+    return struct.unpack('<I', save_ram(g, BADGES, 4, 4))[0]
+
+
+def talk_and_fight(g, face, done, rounds=20):
+    """Face someone, A to talk, then battle rounds and B through what follows until done(g)."""
+    g.run(f'press {face} 3', 'wait 20', 'press A 4', 'wait 50')
+    for _ in range(rounds):
+        g.run(*['press B 4', 'wait 50'] * 4, *BATTLE_ROUND)
+        if done(g):
+            g.run(*['press B 4', 'wait 60'] * 12)  # the badge, the TM, the leader's last lines
+            return
+    raise TestFailure(f'still not done after {rounds} rounds, at {player(g)}')
 
 
 def use_field_move(g, face):
@@ -238,6 +326,21 @@ def use_field_move(g, face):
     g.run(f'press {face} 3', 'wait 20')
     for w in (90, 90, 120, 150, 150):
         g.run('press A 4', f'wait {w}')
+
+
+def settle(g, rounds=40):
+    """B through whatever follows (a leader's speech, a cutscene that walks the player off) until a step moves the
+    player; step back."""
+    back = {'Down': 'Up', 'Up': 'Down', 'Left': 'Right', 'Right': 'Left'}
+    for _ in range(rounds):
+        g.run(*['press B 4', 'wait 40'] * 4)
+        for d in ('Down', 'Up', 'Left', 'Right'):
+            p = player(g)
+            g.run(f'press {d} 16', 'wait 20')
+            if player(g) != p:
+                g.run(f'press {back[d]} 16', 'wait 20')
+                return
+    raise TestFailure(f'never got control back, at {player(g)}')
 
 
 def save_reboot_same(g, name):
@@ -354,6 +457,107 @@ def strength(g):
     check(moved, f'strength: nothing moved (objects {after}, player {player(g)})')
     log(f'boulder moved: {moved}')
     save_reboot_same(g, 'strength')
+
+
+# --- gyms ---------------------------------------------------------------------------------------
+# Each gym starts from the starter save with the badges before it and the test battler (battler()), put outside the
+# gym's door (tools/zones.py lists a zone's warps: the door is the warp tile, the save goes on the tile in front).
+
+def gym_save(badge_count):
+    return Save().party(battler()).badges((1 << badge_count) - 1)
+
+
+def got_badge(n):
+    return lambda g: badges(g) >> n & 1
+
+
+STRIATON_GYM = 51  # zone 7's matrix
+VAR_STRIATON_CURTAINS = 0x4082  # 1 after the waiter's welcome, +1 per curtain opened
+
+
+@milestone
+def striaton(g):
+    """Striaton Gym (zone 7, door at (788, 586) in zone 6): each curtain opens on the switch of the type that beats
+    it (water, grass, fire: x 15, 9, 12), then the leader the starter chose; the Trio Badge."""
+    path = gym_save(0).put(6, 788, 587).write('_ms_striaton')
+    suite.boot_continue(g, saveram=path)
+    through_door(g, 'Up')
+    switches = {(sx, row) for row in (36, 26, 16) for sx in (9, 12, 15)}
+    for row, x in ((36, 15), (26, 9), (16, 12)):
+        before = var(g, VAR_STRIATON_CURTAINS)
+        try:
+            walk_to(g, (x, row), avoid=switches - {(x, row)}, matrix=STRIATON_GYM)
+        except TestFailure:  # the last curtain's scene can leave the player past the switch: the var says
+            pass
+        g.run(*['press B 4', 'wait 50'] * 6)
+        check(var(g, VAR_STRIATON_CURTAINS) > before, f'striaton: the switch at {(x, row)} opened nothing')
+    walk_to(g, (12, 4), avoid=switches, matrix=STRIATON_GYM)
+    talk_and_fight(g, 'Up', got_badge(0))
+    save_reboot_same(g, 'striaton')
+
+
+NACRENE_MUSEUM, NACRENE_GYM, NACRENE_BASEMENT = 52, 55, 120  # zones 17, 18, 19
+NACRENE_READER = 2  # the School Kid sitting at (13, 11), in front of the switch book
+VAR_NACRENE_MEMOS = 0x408A  # Lenora's library quiz: 6 once the four memos and the quiz trainers are done
+
+
+@milestone
+def nacrene(g):
+    """Nacrene Gym: through the museum (door (644, 581) in zone 16) to the library behind it. The four-memo quiz is a
+    chain of book reads and yes/no answers; the save starts it solved (var 6), and the run does the rest: the School Kid
+    sitting in front of the book at (13, 10), the switch in it, the hidden staircase at (12, 9) (entered from (11, 9),
+    moving Right), Lenora below; the Basic Badge."""
+    path = gym_save(1).var(VAR_NACRENE_MEMOS, 6).put(16, 644, 582).write('_ms_nacrene')
+    suite.boot_continue(g, saveram=path)
+    through_door(g, 'Up')
+    walk_to(g, (11, 3), matrix=NACRENE_MUSEUM)
+    through_door(g, 'Up')
+    walk_to(g, (12, 11), matrix=NACRENE_GYM)
+    talk_and_fight(g, 'Right', lambda g: (NACRENE_READER, 14, 12) in objects(g))  # beaten, she gets up and steps aside
+    walk_to(g, (13, 12), matrix=NACRENE_GYM)
+    g.run('press Up 16', 'wait 30', 'press Up 3', 'wait 20')  # her chair: only enterable from below
+    for _ in range(25):  # the book, its memo and the shelves sliding aside: about 17 messages
+        g.run('press A 4', 'wait 120')
+        if var(g, VAR_NACRENE_MEMOS) == 7:
+            break
+    check(var(g, VAR_NACRENE_MEMOS) == 7, f'nacrene: the switch book did nothing (var {var(g, VAR_NACRENE_MEMOS)})')
+    g.run(*['press B 4', 'wait 60'] * 6)
+    g.run('press Down 16', 'wait 30')
+    walk_to(g, (11, 9), matrix=NACRENE_GYM)
+    through_door(g, 'Right')  # the staircase at (12, 9) is entered from the side
+    walk_to(g, (5, 11), matrix=NACRENE_BASEMENT)
+    talk_and_fight(g, 'Up', got_badge(1))
+    settle(g)  # Lenora's win runs straight into the museum break-in scene
+    save_reboot_same(g, 'nacrene')
+
+
+CASTELIA_GYM = 56  # zone 29
+CASTELIA_HONEY = {(32, 33), (38, 29), (26, 29), (20, 25), (26, 21), (38, 21), (32, 17)}  # the walls' blocker objects
+# Each room's centre tile is a switch (script file 58: command 0x18d sets switch k, overlay 38 0x021F42BC). A honey
+# wall opens once its switch, or both of its pair, are set (overlay 38 tables 0x021F4628 partners and 0x021F4632
+# walls): (38, 29) needs (32, 29) and (44, 29); (38, 21) needs (32, 21) and (44, 21); (26, 21) needs (32, 21) and
+# (20, 21); (26, 29) and (20, 25) need (26, 25) and (32, 29), one each; the last wall, (32, 17), needs both side
+# rooms, (26, 17) and (38, 17). A closed wall doesn't give way however long the push.
+CASTELIA_ROUTE = [  # (tile, the honey walls open once the player has stood there)
+    ((32, 29), set()), ((44, 29), {(38, 29)}), ((26, 25), set()), ((32, 21), {(26, 29), (20, 25)}),
+    ((44, 21), {(38, 21)}), ((20, 21), {(26, 21)}), ((38, 17), set()), ((26, 17), {(32, 17)}), ((32, 5), set())]
+VAR_BURGH_BACK = 0x40D7  # 1 once Burgh is back from Prime Pier (script file 112); until then he isn't in the Gym
+
+
+@milestone
+def castelia(g):
+    """Castelia Gym (zone 29, door at (25, 48) on street zone 31): pushing through the honey walls (a long hold
+    each), by way of the room switches that unlock them, to Burgh; the Insect Badge. The save has Burgh back from
+    Prime Pier."""
+    path = gym_save(2).var(VAR_BURGH_BACK, 1).put(31, 24, 48).write('_ms_castelia')
+    suite.boot_continue(g, saveram=path)
+    through_door(g, 'Right')
+    shut = CASTELIA_HONEY - {(32, 33)}
+    for stop, opened in CASTELIA_ROUTE:
+        walk_to(g, stop, avoid=shut, matrix=CASTELIA_GYM, rounds=60, honey=CASTELIA_HONEY)
+        shut -= opened
+    talk_and_fight(g, 'Up', got_badge(2))
+    save_reboot_same(g, 'castelia')
 
 
 def main():
