@@ -9,10 +9,13 @@ the same zone on the same tile.
 
 Milestones: mom_gifts (Route 2 gate: the Endless Repel and Exp. All), cut (the Route 2 tree), surf (zone 370's
 shore, with A), strength (zone 224's cave, Tepig), pinwheel (the busiest map, with the follower out); the gyms, each with a test-only Lv. 100 Mewtwo: striaton,
-nacrene, castelia, nimbasa; and, by way of to_leader(), driftveil, mistralton, icirrus, opelucid.
+nacrene, castelia, nimbasa; and, by way of to_leader(), driftveil, mistralton, icirrus, opelucid; the League:
+elite_four, ending (to the credits), then, from the cleared game ending leaves, elite_four_again and champion (Alder,
+the Hall of Fame).
 MS_ROM=vanilla runs them on the base game.
 """
 import os
+import shutil
 import struct
 import sys
 import time
@@ -281,6 +284,11 @@ def world(matrix=0):
 # taps repeat densely with no B among them; on the move screen (128, 80) is an empty slot and on the action menu
 # (64, 40) is nothing, so a tap that comes early or late does nothing.
 BATTLE_ROUND = (['press B 4', 'wait 40'] * 2 + ['touch 128 80', 'wait 20', 'touch 64 40', 'wait 20'] * 16)
+# The same with the second move first (Surf on the battler; (192, 40) on the move screen), then the first: for foes
+# that Disable (the post-game Elite Four's Froslass and Drifblim; a disabled move's tap leaves the move screen up) and
+# that don't absorb Water (none of the Elite Four's do).
+BATTLE_ROUND_2 = (['press B 4', 'wait 40'] * 2 + ['touch 128 80', 'wait 20', 'touch 192 40', 'wait 20'] * 16
+                  + BATTLE_ROUND)
 STEPS = {(1, 0): 'Right', (-1, 0): 'Left', (0, 1): 'Down', (0, -1): 'Up'}
 
 
@@ -372,11 +380,11 @@ def badges(g):
     return struct.unpack('<I', save_ram(g, BADGES, 4, 4))[0]
 
 
-def talk_and_fight(g, face, done, rounds=20):
+def talk_and_fight(g, face, done, rounds=20, turn=BATTLE_ROUND):
     """Face someone, A to talk, then battle rounds and B through what follows until done(g)."""
     g.run(f'press {face} 3', 'wait 20', 'press A 4', 'wait 50')
     for _ in range(rounds):
-        g.run(*['press B 4', 'wait 50'] * 4, *BATTLE_ROUND)
+        g.run(*['press B 4', 'wait 50'] * 4, *turn)
         if done(g):
             g.run(*['press B 4', 'wait 60'] * 12)  # the badge, the TM, the leader's last lines
             return
@@ -806,21 +814,26 @@ ELITE_FOUR = [  # (zone, the tile below the member, the tile layer's height ther
     (140, (15, 10), 51, 2409), (141, (15, 10), 260, 2410), (142, (15, 12), 389, 2411), (143, (15, 8), 389, 2412)]
 
 
-@milestone
-def elite_four(g):
-    """The Elite Four, one room after another, each with all eight badges: the battle, the member's flag; then save,
-    power-cycle and continue in the last room."""
+def elite_four_rooms(g, base, name):
+    """Each member's room in turn, continued into from base() with the members before it beaten: the battle, the
+    member's flag; then save, power-cycle and continue in the last room."""
     done = []
     for zone, (x, z), height, fl in ELITE_FOUR:
-        save = gym_save(8)
+        save = base()
         for f in done:
             save = save.flag(f)
-        suite.boot_continue(g, saveram=save.put(zone, x, z, height, people=True).write(f'_ms_e4_{zone}'))
+        continue_from(g, save.put(zone, x, z, height, people=True).write(f'_ms_{name}_{zone}'))
         g.run('wait 60')
-        talk_and_fight(g, 'Up', lambda g: flag(g, fl) and can_move(g))
+        talk_and_fight(g, 'Up', lambda g: flag(g, fl) and can_move(g), turn=BATTLE_ROUND_2)
         log(f'zone {zone}: beaten (flag {fl})')
         done.append(fl)
-    save_reboot_same(g, 'elite_four')
+    save_reboot_same(g, name)
+
+
+@milestone
+def elite_four(g):
+    """The Elite Four, with all eight badges."""
+    elite_four_rooms(g, lambda: gym_save(8), 'elite_four')
 
 
 ITEM_MASTER_BALL, ITEMS_POCKET = 1, 0
@@ -841,6 +854,7 @@ def ending_round(throw):
     return ['press Up 16', 'wait 30', *['press B 4', 'wait 50'] * 4,
             *['press A 4', 'wait 60'] * 4,  # talk to Reshiram ("Try to catch me!") and answer YES
             'press START 4', 'wait 30', 'press A 4', 'wait 120',  # if A answered YES to a nickname: START, OK
+            'touch 213 108', 'wait 120',  # or Enter, when a stray tap switched the keyboard to qwerty (no OK there)
             *throw * 6,  # the ball before any attack (Dark Pulse knocks Reshiram out)
             'touch 192 23', 'wait 60', 'touch 128 80', 'wait 60', *BATTLE_ROUND]
 
@@ -854,15 +868,15 @@ def ending(g):
     for _, _, _, fl in ELITE_FOUR:
         save = save.flag(fl)
     suite.boot_continue(g, saveram=save.put(277, 23, 10, 0, people=True).write('_ms_ending'))
-    old = suite.newest(g.flush())[1]
+    old = suite.newest(g.flush())
     for k in range(120):
         g.run(*ending_round(BAG_BALL if g.rom == 'vanilla' else QUICK_BALL))
         data = g.flush()
         if os.environ.get('MS_VERBOSE') or k % 10 == 9:
             here = [o[1:] for o in objects(g) if o[0] == PLAYER]
             shot = g.shot(f'_ms_ending_round{k + 1}' if os.environ.get('MS_VERBOSE') else '_ms_ending_round')
-            log(f'round {k + 1}: player at {here[0] if here else None} {shot}')
-        if suite.newest(data)[1] > old:
+            log(f'round {k + 1}: player at {here[0] if here else None}, save {suite.describe(data)} {shot}')
+        if suite.newest(data) != old:
             log(f'saved by the game after the credits, round {k + 1}')
             break
     else:
@@ -873,6 +887,64 @@ def ending(g):
     log(f'cleared, continued at {player(g)}')
     check(player(g) == (5, 6), f'ending: the cleared game continued at {player(g)}, not in the player\'s room')
     save_reboot_same(g, 'ending')
+    shutil.copy(os.path.join(OUT, '_ms_ending_saved.sav'), cleared(g))
+
+
+def cleared(g):
+    """The save ending() leaves: the cleared game, continued once (the first Continue after the credits always puts
+    the player in their room) and saved again."""
+    return os.path.join(OUT, f'_ms_cleared_{g.rom}.sav')
+
+
+def cleared_save(g, beaten=False):
+    """The cleared game with the test battler and the Elite Four to beat again (beaten=True: beaten already). The
+    League clears their flags at its entrance, which these saves skip, so the save does it."""
+    check(os.path.exists(cleared(g)), f'no {os.path.basename(cleared(g))}: run the ending milestone first')
+    save = Save(cleared(g)).party(battler())
+    for _, _, _, fl in ELITE_FOUR:
+        save.edit(VARS_FLAGS, lambda b, fl=fl: b.__setitem__(FLAGS + fl // 8, b[FLAGS + fl // 8] & ~(1 << fl % 8)))
+        if beaten:
+            save.flag(fl)
+    return save
+
+
+@milestone
+def elite_four_again(g):
+    """The post-game Elite Four, from the cleared game."""
+    elite_four_rooms(g, lambda: cleared_save(g), 'elite_four_again')
+
+
+HALL_OF_FAME = 145
+
+
+@milestone
+def champion(g):
+    """Alder, from the cleared game with the Elite Four beaten again: up the stairway (zone 138, door at (31, 2))
+    into his room (144), where walking up starts his scene and the battle; the Hall of Fame (zone 145) and the game's
+    save there, which the credits follow; then Continue, save, power-cycle and continue."""
+    continue_from(g, cleared_save(g, beaten=True).put(138, 31, 4).write('_ms_champion'))
+    through_door(g, 'Up')
+    g.run('wait 120')
+    old = suite.newest(g.flush())[1]
+    for k in range(60):
+        g.run('press Up 16', 'wait 30', *['press B 4', 'wait 50'] * 4, *BATTLE_ROUND)
+        data = g.flush()
+        half, count = suite.newest(data)
+        if os.environ.get('MS_VERBOSE') or k % 10 == 9:
+            here = [o[1:] for o in objects(g) if o[0] == PLAYER]
+            log(f'round {k + 1}: player at {here[0] if here else None} {g.shot("_ms_champion_round")}')
+        if count > old:
+            break
+    else:
+        raise TestFailure(f'champion: no Hall of Fame save after 60 rounds, at {player(g)}')
+    zone = struct.unpack_from('<H', lib.block(data, half, lib.POSITION), 0x80)[0]
+    check(zone == HALL_OF_FAME, f'champion: the game saved in zone {zone}, not the Hall of Fame')
+    log(f'Hall of Fame save, round {k + 1}')
+    keep = os.path.join(OUT, '_ms_champion_hof.sav')
+    open(keep, 'wb').write(data)
+    continue_from(g, keep)
+    log(f'continued after the Hall of Fame at {player(g)}')
+    save_reboot_same(g, 'champion')
 
 
 def main():
