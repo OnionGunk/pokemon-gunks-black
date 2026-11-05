@@ -102,6 +102,24 @@ def battler():
                     stats=(999,) * 6, pid=0x2468ACE0)
 
 
+def person_record(zone, npc):
+    """A zone event's person (18 u16: id, sprite, movement, type, flag, script, facing, param, ..., x, z, ?, y) as a
+    save's object record (0x50 bytes), laid out as the game saved Mistralton Gym's people: status 3, id and movement
+    at +8, facing x3 at +0xC, zone, sprite, type, flag, script and param from +0x10, the tile (x, y, z) twice from
+    +0x20, then the height again and, for a trainer, its facing and type."""
+    r = bytearray(0x50)
+    y = npc[17]
+    struct.pack_into('<I2B', r, 0, 3, 1, 1)
+    struct.pack_into('<2B', r, 8, npc[0], npc[2])
+    r[0xC:0xF] = bytes([npc[6]] * 3)
+    struct.pack_into('<6H', r, 0x10, zone, npc[1], npc[3], npc[4], npc[5], npc[7])
+    struct.pack_into('<6H', r, 0x20, npc[14], y, npc[15], npc[14], y, npc[15])
+    struct.pack_into('<2H', r, 0x2C, y * 16 - 1 if y else 0, y)
+    if npc[3] == 1:
+        struct.pack_into('<HxxH', r, 0x30, npc[6], 1)
+    return bytes(r)
+
+
 class Save:
     """Edits to both halves of a .sav image."""
 
@@ -144,11 +162,17 @@ class Save:
     def repel(self, steps):
         return self.edit(REPEL, lambda b: b.__setitem__(0x31, steps))
 
-    def put(self, zone, x, z, height=None):
+    def put(self, zone, x, z, height=None, people=False):
         """Continue at tile (x, z) of zone, standing at height (the tile layer's, looked up when not given), with no
-        saved objects but the player's: the zone's own come back when a door loads it."""
+        saved objects but the player's: the zone's own come back when a door loads it. people=True writes the zone's
+        people into the save too, as the game saves them (see person_record), for a zone no door leads into."""
         if height is None:
             height = world(zone_info().header(zone)[2]).tile(x, z)[1]
+        if people:
+            d, furn, count, _, _ = zone_info()._counts(zone)
+            extra = [person_record(zone, struct.unpack_from('<18H', d, 8 + furn * 20 + k * 36)) for k in range(count)]
+        else:
+            extra = []
 
         def pos(b):
             struct.pack_into('<H', b, 0x80, zone)
@@ -161,6 +185,8 @@ class Save:
             b[:len(out)] = out
             struct.pack_into('<HxxH', b, 0x20, x, z)
             struct.pack_into('<HxxH', b, 0x26, x, z)
+            for k, r in enumerate(extra):
+                b[(len(keep) + k) * 0x50:(len(keep) + k + 1) * 0x50] = r
         return self.edit(lib.POSITION, pos).edit(lib.OBJECTS, objs)
 
     def move(self, x, z, height):
@@ -328,6 +354,20 @@ def var(g, v):
     return struct.unpack('<H', save_ram(g, VARS_FLAGS, (v - 0x4000) * 2, 2))[0]
 
 
+def flag(g, n):
+    return save_ram(g, VARS_FLAGS, FLAGS + n // 8, 1)[0] >> n % 8 & 1
+
+
+def can_move(g):
+    """A step down moves the player (it's stepped back): no battle, message or scene is holding the player."""
+    p = player(g)
+    g.run('press Down 16', 'wait 30')
+    if player(g) == p:
+        return False
+    g.run('press Up 16', 'wait 30')
+    return True
+
+
 def badges(g):
     return struct.unpack('<I', save_ram(g, BADGES, 4, 4))[0]
 
@@ -365,6 +405,18 @@ def settle(g, rounds=40):
     raise TestFailure(f'never got control back, at {player(g)}')
 
 
+def continue_from(g, path):
+    """Power on with this cart and Continue, with A until the player is on the field: a cleared game's menu comes
+    up later than the boot presses expect."""
+    suite.boot_continue(g, saveram=path)
+    g.run('wait 30')
+    for _ in range(10):
+        if any(o[0] == PLAYER for o in objects(g)):
+            return
+        g.run('press A 4', 'wait 150')
+    raise TestFailure('Continue never reached the field')
+
+
 def save_reboot_same(g, name):
     """Save in the game (B first, to close anything still open), power-cycle, Continue: the save took (its counter
     went up), it holds the player's tile, and the game comes back on that tile."""
@@ -379,8 +431,7 @@ def save_reboot_same(g, name):
     check((x, z) == before, f'{name}: the save holds tile {(x, z)}, the player was at {before}')
     keep = os.path.join(OUT, f'_ms_{name}_saved.sav')
     open(keep, 'wb').write(data)
-    suite.boot_continue(g, saveram=keep)
-    g.run('wait 30')
+    continue_from(g, keep)
     after = player(g)
     check(after == before, f'{name}: saved at {before}, continued at {after}')
     log(f'saved and continued in zone {struct.unpack_from("<H", b, 0x80)[0]} at {(x, z)}')
@@ -744,6 +795,84 @@ def opelucid(g):
     through_door(g, 'Up')
     to_leader(g, 'opelucid', 121, 27, 4, 1257)
     leader(g, 'opelucid', 7)
+
+
+# --- the League ---------------------------------------------------------------------------------
+# The Elite Four's rooms (zones 140-143) are entered from the hall (137) by rail stairs, which walk_to can't plan, so
+# each room is continued straight into with its member written into the save (Save.put people=True). A member's
+# script sets its flag (2409-2412) before the battle (trainers 228, 230, 229, 231), so "beaten" is the flag plus the
+# player free to move again.
+ELITE_FOUR = [  # (zone, the tile below the member, the tile layer's height there, the member's flag)
+    (140, (15, 10), 51, 2409), (141, (15, 10), 260, 2410), (142, (15, 12), 389, 2411), (143, (15, 8), 389, 2412)]
+
+
+@milestone
+def elite_four(g):
+    """The Elite Four, one room after another, each with all eight badges: the battle, the member's flag; then save,
+    power-cycle and continue in the last room."""
+    done = []
+    for zone, (x, z), height, fl in ELITE_FOUR:
+        save = gym_save(8)
+        for f in done:
+            save = save.flag(f)
+        suite.boot_continue(g, saveram=save.put(zone, x, z, height, people=True).write(f'_ms_e4_{zone}'))
+        g.run('wait 60')
+        talk_and_fight(g, 'Up', lambda g: flag(g, fl) and can_move(g))
+        log(f'zone {zone}: beaten (flag {fl})')
+        done.append(fl)
+    save_reboot_same(g, 'elite_four')
+
+
+ITEM_MASTER_BALL, ITEMS_POCKET = 1, 0
+# One round of the ending: a step on (the throne room's triggers are up its middle), B through what's said, L throws
+# the quick ball (Gunk's: the last ball used, here the Master Ball for Reshiram; nothing outside a wild battle) and B
+# turns down the nickname (A there means YES, and the keyboard eats the rest), a switch-in when a Pokémon faints (the
+# second party panel, then SHIFT: Reshiram leads N's and Ghetsis's battles), then a battle turn. After the credits the
+# game saves by itself and goes back to the title screen, which these presses get past: the save counter going up is
+# the end of the ending.
+QUICK_BALL = ['press L 4', 'wait 120', 'press B 4', 'wait 300']
+# vanilla has no quick ball: BAG, the Poké Balls pocket, the first ball, USE; then B through the catch and its "Give a
+# nickname?" before any more taps (the pocket's tap lands on that question's YES)
+BAG_BALL = ['touch 40 168', 'wait 120', 'touch 192 48', 'wait 90', 'touch 64 40', 'wait 90', 'touch 110 173', 'wait 900',
+            *['press B 4', 'wait 60'] * 5]
+
+
+def ending_round(throw):
+    return ['press Up 16', 'wait 30', *['press B 4', 'wait 50'] * 4,
+            *['press A 4', 'wait 60'] * 4,  # talk to Reshiram ("Try to catch me!") and answer YES
+            'press START 4', 'wait 30', 'press A 4', 'wait 120',  # if A answered YES to a nickname: START, OK
+            *throw * 6,  # the ball before any attack (Dark Pulse knocks Reshiram out)
+            'touch 192 23', 'wait 60', 'touch 128 80', 'wait 60', *BATTLE_ROUND]
+
+
+@milestone
+def ending(g):
+    """N's Castle to the credits: from below the throne room's door (zone 277), the sages, Zekrom, Reshiram caught
+    with the Master Ball, N, Ghetsis, the ending and the credits back to the title screen; the game's own save after
+    the credits, and Continue starts the cleared game in the player's room; then save, power-cycle and continue."""
+    save = gym_save(8).items(ITEMS_POCKET, ITEM_MASTER_BALL)
+    for _, _, _, fl in ELITE_FOUR:
+        save = save.flag(fl)
+    suite.boot_continue(g, saveram=save.put(277, 23, 10, 0, people=True).write('_ms_ending'))
+    old = suite.newest(g.flush())[1]
+    for k in range(120):
+        g.run(*ending_round(BAG_BALL if g.rom == 'vanilla' else QUICK_BALL))
+        data = g.flush()
+        if os.environ.get('MS_VERBOSE') or k % 10 == 9:
+            here = [o[1:] for o in objects(g) if o[0] == PLAYER]
+            shot = g.shot(f'_ms_ending_round{k + 1}' if os.environ.get('MS_VERBOSE') else '_ms_ending_round')
+            log(f'round {k + 1}: player at {here[0] if here else None} {shot}')
+        if suite.newest(data)[1] > old:
+            log(f'saved by the game after the credits, round {k + 1}')
+            break
+    else:
+        raise TestFailure(f'ending: the game never saved by itself (no credits) after 120 rounds, at {player(g)}')
+    keep = os.path.join(OUT, '_ms_ending_cleared.sav')
+    open(keep, 'wb').write(data)
+    continue_from(g, keep)
+    log(f'cleared, continued at {player(g)}')
+    check(player(g) == (5, 6), f'ending: the cleared game continued at {player(g)}, not in the player\'s room')
+    save_reboot_same(g, 'ending')
 
 
 def main():
