@@ -464,7 +464,7 @@ def repel_prompt(rom):
 
 
 ITEM_ENDLESS_REPEL = 426  # an unused slot ("???") next to the key items
-POCKET_KEY = 4
+KEY_ITEM_FLAGS = 0x023F  # the Light Stone's, Prop Case's...: key pocket, not registrable (Bicycle and co.: 0x027F)
 SCRIPT_RUNNING_SHOES, TEXT_RUNNING_SHOES = 638, 351  # zone 319: Mom's Running Shoes scene
 MSG_SHOES_EXPLAINED = 6
 OP_FANFARE, OP_FANFARE_WAIT, OP_ADD_ITEM = 0xA9, 0xAA, 0xB5
@@ -480,8 +480,7 @@ def endless_repel(rom):
     data = bytearray(items.file(ITEM_REPEL))
     struct.pack_into('<H', data, 0, 0)  # no price
     data[3] = ENDLESS_REPEL_STEPS
-    flags = struct.unpack_from('<H', data, 8)[0]
-    struct.pack_into('<H', data, 8, flags & ~(0xF << 7) | POCKET_KEY << 7)
+    struct.pack_into('<H', data, 8, KEY_ITEM_FLAGS)  # key pocket; no giving, throwing away or registering
     assert items.file(ITEM_ENDLESS_REPEL)[:4] == bytes(4)
     items.set_file(ITEM_ENDLESS_REPEL, bytes(data))
     rom.replace_file(rom.file_id('a/0/2/4'), items.save())
@@ -562,8 +561,7 @@ def _key_item(rom, item, name, plural, article, desc, retail=('???', '')):
     items = Narc(rom.file(rom.file_id('a/0/2/4')))
     data = bytearray(items.file(ITEM_REPEL))
     struct.pack_into('<H', data, 0, 0)
-    flags = struct.unpack_from('<H', data, 8)[0]
-    struct.pack_into('<H', data, 8, flags & ~(0xF << 7) | POCKET_KEY << 7)
+    struct.pack_into('<H', data, 8, KEY_ITEM_FLAGS)  # key pocket; no giving, throwing away or registering
     assert items.file(item)[:4] == bytes(4)
     items.set_file(item, bytes(data))
     rom.replace_file(rom.file_id('a/0/2/4'), items.save())
@@ -870,7 +868,6 @@ def dexnav_screen(rom):
 
 
 ITEM_DEXNAV = 431  # the Poké Radar's slot: in the item tables, but Black never gives it out
-KEY_ITEM_FLAGS = 0x023F  # the Light Stone's, Prop Case's...: key pocket, not registrable (Bicycle and co.: 0x027F)
 SCRIPT_ROUTE1, TEXT_ROUTE1 = 634, 349  # zone 317: Juniper's catching lesson
 MSG_JUNIPER_GOING_AHEAD = 6
 JUNIPER_BALLOON = (2, 5, 0)  # her lines' balloon arguments after the message number
