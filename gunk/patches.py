@@ -556,8 +556,9 @@ ITEM_EXP_ALL = 427  # the other unused slot next to the key items
 OVL_BATTLE = 93  # the battle server, at 0x021B6100
 
 
-def _key_item(rom, item, name, plural, article, desc):
-    """An unused item slot becomes a key item that the bag can USE (Repel's data, no price, key pocket)."""
+def _key_item(rom, item, name, plural, article, desc, retail=('???', '')):
+    """An unused item slot (named one of `retail`) becomes a key item that the bag can USE (Repel's data, no price,
+    key pocket)."""
     items = Narc(rom.file(rom.file_id('a/0/2/4')))
     data = bytearray(items.file(ITEM_REPEL))
     struct.pack_into('<H', data, 0, 0)
@@ -569,7 +570,7 @@ def _key_item(rom, item, name, plural, article, desc):
 
     def text(fid, chars):
         def edit(texts):
-            assert text5.to_str(texts[item][0]) in ('???', '')
+            assert text5.to_str(texts[item][0]) in retail or fid != 54, text5.to_str(texts[item][0])
             texts[item] = (chars, texts[item][1])
         _edit_text(rom, 'a/0/0/2', fid, edit)
     text(54, text5.chars(name))
@@ -868,7 +869,88 @@ def dexnav_screen(rom):
     _edit_script(rom, SCRIPT_FIELD_COMMON, script)
 
 
-FOLLOWERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
+ITEM_DEXNAV = 431  # the Poké Radar's slot: in the item tables, but Black never gives it out
+KEY_ITEM_FLAGS = 0x023F  # the Light Stone's, Prop Case's...: key pocket, not registrable (Bicycle and co.: 0x027F)
+SCRIPT_ROUTE1, TEXT_ROUTE1 = 634, 349  # zone 317: Juniper's catching lesson
+MSG_JUNIPER_GOING_AHEAD = 6
+JUNIPER_BALLOON = (2, 5, 0)  # her lines' balloon arguments after the message number
+OVL_MENU = 10  # the start menu shares overlay 10 with the script engine
+MENU_BAG_RETURN = 0x02171308  # the bag's entry in the start menu's app table: its return handler
+MENU_ITEM_EVENT_CALL = 0x0215FEAA  # the menu event's bl to the item event maker (FUN_overlay_d_10__021644f4)
+PAGE = [0xF000, 0xBE01, 0, 0xFFFE]  # wait for A, then a new page
+WAIT = [0xF000, 0xBE01, 0]
+
+
+def dexnav_item(rom):
+    """The DexNav as a key item (gunk/code/bag.c, dexnav.c): the Poké Radar's slot, renamed; USE in the bag opens
+    the DexNav screen, and R and L+R work only with it in the bag. Juniper gives it on Route 1 at the end of her
+    catching lesson, before she goes on ahead; a save already past the lesson gets it the first time R is pressed."""
+    retail = Narc(rom.file(rom.file_id('a/0/2/4'))).file(ITEM_DEXNAV)
+    _key_item(rom, ITEM_DEXNAV, 'DexNav', 'DexNavs', 'a',
+              "Finds Pokémon you've seen nearby. Press\nL and R to choose one, then R to search.", retail=('Poké Radar',))
+    # the Poké Radar's own data with a field use (any; the bag's table runs Gunk_Bag_DexNav first) and the flags of
+    # key items like the Light Stone: no giving or throwing away, and no registering to Y (Y's shortcuts are a fixed
+    # list of 25, all taken; R is the DexNav's button)
+    items = Narc(rom.file(rom.file_id('a/0/2/4')))
+    data = bytearray(retail)
+    repel = items.file(ITEM_REPEL)
+    data[0x0A] = repel[0x0A]
+    struct.pack_into('<H', data, 8, KEY_ITEM_FLAGS)
+    items.set_file(ITEM_DEXNAV, bytes(data))
+    rom.replace_file(rom.file_id('a/0/2/4'), items.save())
+
+    code = bytearray(rom.overlay(70))
+    base = rom.overlay_base(70)
+    patch(code, 0x021B6EE8 - base, '0a2d', '0b2d')  # cmp r5, #10 -> #11: the DexNav after endless_repel's two
+    rom.replace_overlay(70, bytes(code))
+
+    code = bytearray(rom.overlay(OVL_MENU))
+    base = rom.overlay_base(OVL_MENU)
+    patch(code, MENU_BAG_RETURN - base, struct.pack('<I', 0x02161071).hex(),
+          struct.pack('<I', code_syms['Gunk_BagReturn'] | 1).hex())
+    patch(code, MENU_ITEM_EVENT_CALL - base, thumb_bl(MENU_ITEM_EVENT_CALL, 0x021644F4),
+          thumb_bl(MENU_ITEM_EVENT_CALL, code_syms['Gunk_ItemEvent']))
+    rom.replace_overlay(OVL_MENU, bytes(code))
+
+    # Juniper: before her last line (message 6, she goes on ahead), the DexNav, as Mom gives her items
+    shoes_text = text5.entries(Narc(rom.file(rom.file_id('a/0/0/3'))).file(TEXT_RUNNING_SHOES))
+    received = list(shoes_text[4][0])  # "<player> received a pair of\n<Running Shoes>!"
+    for old, new in (('a pair of', 'the'), ('Running Shoes', 'DexNav')):
+        old, new = text5.chars(old), text5.chars(new)
+        at = next(i for i in range(len(received)) if received[i:i + len(old)] == old)
+        received = received[:at] + new + received[at + len(old):]
+    msg = {}
+
+    def gift_text(texts):
+        assert text5.to_str(texts[MSG_JUNIPER_GOING_AHEAD][0]).startswith('Professor Juniper: Poké Balls')
+        msg['recv'] = len(texts)
+        texts += [(received, shoes_text[4][1]),
+                  (text5.chars('Professor Juniper: That is a DexNav.\nIt finds Pokémon you have already seen.')
+                   + PAGE + text5.chars('Press L and R together to choose one,\nthen just R to look for it again!')
+                   + WAIT, texts[MSG_JUNIPER_GOING_AHEAD][1])]
+    _edit_text(rom, 'a/0/0/3', TEXT_ROUTE1, gift_text)
+
+    S = script5
+
+    def script(sf):
+        hook = 277  # message 6 in a balloon, then 0x3E (14 bytes)
+        line = S.assemble(hook, [(OP_BALLOON, ('u8', 0), ('u8', 4), MSG_JUNIPER_GOING_AHEAD, *JUNIPER_BALLOON),
+                                 (OP_BALLOON_CLOSE,)])
+        assert bytes(sf.data[hook:hook + 14]) == line
+        at = len(sf.data) + len(sf.data) % 2
+        recv = msg['recv']
+        program = [(OP_ADD_ITEM, ITEM_DEXNAV, 1, VAR_A), (OP_FANFARE, FANFARE_KEY_ITEM),
+                   (S.OP_MESSAGE, recv, 2), (OP_FANFARE_WAIT,), (OP_WAIT_KEY,), (S.OP_CLOSE,),
+                   (OP_BALLOON, ('u8', 0), ('u8', 4), recv + 1, *JUNIPER_BALLOON), (OP_BALLOON_CLOSE,),
+                   (OP_BALLOON, ('u8', 0), ('u8', 4), MSG_JUNIPER_GOING_AHEAD, *JUNIPER_BALLOON), (OP_BALLOON_CLOSE,),
+                   (S.OP_JUMP, ('to', hook + 14))]
+        new = sf.append(S.assemble(at, program))
+        assert new == at
+        sf.data[hook:hook + 6] = S.jump_to(hook, at)
+    _edit_script(rom, SCRIPT_ROUTE1, script)
+
+
+FOLLOWERS_DIR =os.path.join(os.path.dirname(os.path.abspath(__file__)), 'followers')
 # Gen 5 species that fly or float: their sprite parameters take the flag Black gives its own flyers (byte 3 0x0B)
 FOLLOWERS_FLYING = {517, 518, 519, 520, 521, 527, 528, 561, 562, 566, 567, 577, 578, 579, 580, 581, 582, 583, 584, 587,
                     592, 593, 599, 600, 601, 602, 603, 604, 608, 609, 615, 627, 628, 629, 630, 635, 637, 641, 642, 645}
@@ -971,4 +1053,4 @@ def followers(rom):
 PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, quick_run, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
-           dexnav, followers, follower_talk, dexnav_got_away, dexnav_screen]
+           dexnav, followers, follower_talk, dexnav_got_away, dexnav_screen, dexnav_item]

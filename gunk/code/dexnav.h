@@ -4,6 +4,10 @@
 #include "gunk.h"
 
 #define DEXNAV_LIST_MAX 12   /* species on the DexNav screen */
+#define ITEM_DEXNAV 431      /* the Poké Radar's slot, which Black never gives out (patches.dexnav_item) */
+
+/* the bag's USE on the DexNav (bag.c): the screen for the player's spot, as an event */
+u32 DexNav_ItemEvent(void *fieldSys);
 
 /* the screen (script 10146, patches.dexnav_screen): the list R built for the player's spot */
 u32 DexNav_ListCount(void);

@@ -149,10 +149,34 @@ static u32 Random(void)
     return sRand >> 16;
 }
 
+#define SAVE_BLOCK_BAG 25
+#define SAVE_BLOCK_VARS 45       /* u16 vars from 0x4000 */
+#define BAG_KEY_ITEMS 0x4D8      /* {u16 item, u16 count} */
+#define BAG_KEY_SLOTS 83
+#define VAR_ROUTE1_SCENE 0x407C  /* 1 once Juniper's catching lesson on Route 1 is over (script 634) */
+
+/* the player has the DexNav. Juniper gives it at the end of her lesson on Route 1; a save from before it was added
+   to the game, already past that lesson, gets it here. */
+static int HaveDexNav(void)
+{
+    u16 *key = (u16 *)(SaveData_GetBlock(SaveData_Ptr, SAVE_BLOCK_BAG) + BAG_KEY_ITEMS);
+    u16 *vars = (u16 *)SaveData_GetBlock(SaveData_Ptr, SAVE_BLOCK_VARS);
+    int i;
+
+    for (i = 0; i < BAG_KEY_SLOTS && key[2 * i]; i++)
+        if (key[2 * i] == ITEM_DEXNAV)
+            return 1;
+    if (!vars[VAR_ROUTE1_SCENE - 0x4000] || i == BAG_KEY_SLOTS)
+        return 0;
+    key[2 * i] = ITEM_DEXNAV;
+    key[2 * i + 1] = 1;
+    return 1;
+}
+
 /* with the field's per-frame input (field.c) */
 void DexNav_Input(void)
 {
-    if (Key_GetTrg() & PAD_R)
+    if ((Key_GetTrg() & PAD_R) && HaveDexNav())
         sRequested = (Key_GetCont() & PAD_L) ? 2 : 1;
 }
 
@@ -470,6 +494,30 @@ static int NotHere(const u8 *table, int terrain, u16 species)
     return MSG_NOT_HERE;
 }
 
+/* the list for the player's spot (none where the zone has no wild Pokémon); the spot's terrain */
+static int SpotList(const u8 *table, void *fieldSys)
+{
+    int terrain;
+
+    if (!table) {
+        sListCount = 0;
+        return TERRAIN_LAND;
+    }
+    terrain = Terrain(PlayerAttr(fieldSys));
+    BuildList(table, terrain);
+    return terrain;
+}
+
+/* the bag's USE on the DexNav: the screen, as L+R opens it (a pick starts the search once the field runs again) */
+u32 DexNav_ItemEvent(void *fieldSys)
+{
+    const u8 *table = *(const u8 **)((u8 *)FieldSys_GetEncount(fieldSys) + 0xC);
+
+    SpotList(table && (table[7] & ENC_LOADED) ? table : 0, fieldSys);
+    return Event_Script(*(void **)((u8 *)fieldSys + FIELD_GSYS), sListCount ? DEXNAV_SCREEN_SCRIPT : DEXNAV_NOTHING_SCRIPT,
+                        0, *(u16 *)((u8 *)fieldSys + FIELD_ZONE));
+}
+
 u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
 {
     void *enc = FieldSys_GetEncount(fieldSys);
@@ -506,13 +554,9 @@ u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
     sRequested = 0;
     if (sPatch)  /* one search at a time */
         return StepEncount(state, x, fieldSys);
-    if (!table || !(table[7] & ENC_LOADED)) {
-        sListCount = 0;
+    if (table && !(table[7] & ENC_LOADED))
         table = 0;
-    } else {
-        terrain = Terrain(PlayerAttr(fieldSys));
-        BuildList(table, terrain);
-    }
+    terrain = SpotList(table, fieldSys);
     /* R searches for the registered Pokémon at once; L+R, or R with none registered, opens the screen */
     if (request == 1 && sLastPick) {
         u32 i;

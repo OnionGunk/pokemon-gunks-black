@@ -36,6 +36,12 @@ CREATE = 0x021A96B8  # builds a wild Pokémon: r0 is the party-format Pokémon
 DEX_BLOCK, DEX_CAUGHT, DEX_SEEN = 55, 0x08, 0x5C
 KIND_OFFSET, KIND_SLOTS = (0x08, 0x38, 0x68, 0x98, 0xAC), (12, 12, 12, 5, 5)
 SPECIES_PATRAT, SPECIES_LILLIPUP = 504, 506
+ITEM_DEXNAV = 431              # the Poké Radar's slot
+KEY_SLOTS = 83
+VAR_ROUTE1_LESSON = 0x407C     # 1 once Juniper's catching lesson is over (she gives the DexNav at its end)
+VAR_NUVEMA_EXIT = 0x4080       # 2: Nuvema's north exit lets the player through to the lesson
+NUVEMA_EXIT = (389, 787, 742)  # just south of that exit
+BAG_TO_KEY_ITEMS = ['press X 4', 'wait 60', 'touch 64 45', 'wait 120'] + ['touch 131 177', 'wait 40'] * 4
 
 DARK_SPOT = (321, 727, 589)    # Route 3's dark grass
 CAVE_SPOT = (324, 15, 3)       # Wellspring Cave's floor (dust clouds)
@@ -116,15 +122,25 @@ def check_cart(data, levels, label):
 
 # --- saves and the screen ------------------------------------------------------------------------
 
-def base(caught=(), seen=()):
+def base(caught=(), seen=(), dexnav=True):
     """The Route 1 save with Mewtwo (level 100) leading and a Repel on, so no wild Pokémon turns up on the way to
-    the effect (the effect's own encounter skips the Repel), and these species marked caught (and seen) or seen."""
+    the effect (the effect's own encounter skips the Repel), and these species marked caught (and seen) or seen;
+    the DexNav in the key items."""
     def edit(b):
         for sp in caught:
             b[DEX_CAUGHT + (sp - 1) // 8] |= 1 << (sp - 1) % 8
         for sp in tuple(caught) + tuple(seen):
             b[DEX_SEEN + (sp - 1) // 8] |= 1 << (sp - 1) % 8
-    return M.Save(BALLS).party(M.battler()).repel(250).edit(DEX_BLOCK, edit)
+
+    def give(b):
+        k = key_items(b).index(0)
+        struct.pack_into('<HH', b, M.KEY_POCKET + 4 * k, ITEM_DEXNAV, 1)
+    save = M.Save(BALLS).party(M.battler()).repel(250).edit(DEX_BLOCK, edit)
+    return save.edit(M.BAG, give) if dexnav else save
+
+
+def key_items(bag):
+    return [struct.unpack_from('<H', bag, M.KEY_POCKET + 4 * k)[0] for k in range(KEY_SLOTS)]
 
 
 def screen(g, last=None):
@@ -300,6 +316,66 @@ def r_flow(g):
     g.shot('dexnav_surf_hint')
     g.run(*['press B 4', 'wait 40'] * 3)
     log(f'R searched at once; unseen Patrat refused; {water} on land: surf hint (rows {rows})')
+
+
+def ram_key_items(g):
+    pocket = M.save_ram(g, M.BAG, M.KEY_POCKET, 4 * KEY_SLOTS)
+    return [struct.unpack_from('<H', pocket, 4 * k)[0] for k in range(KEY_SLOTS)]
+
+
+@test
+def bag_use(g):
+    """The DexNav in the key items: USE / CANCEL only (no giving, throwing away or registering), and USE closes the
+    bag and the menu and opens the screen, whose pick starts a search."""
+    suite.boot_continue(g, saveram=base(seen=[SPECIES_LILLIPUP]).write('_dn_bag'))
+    g.run(*['press Up 16'] * 7, 'wait 30')
+    g.poke(SYM['sLastPick'], struct.pack('<H', SPECIES_LILLIPUP))
+    g.run(*BAG_TO_KEY_ITEMS, 'touch 180 25', 'wait 60')
+    g.shot('dexnav_bag')
+    g.run('touch 200 157', 'wait 150')  # USE: the second-last of two rows
+    check(u8(g, 'sListCount') > 0, f'bag_use: no screen after USE ({g.shot("_dn_bag_use")})')
+    g.shot('dexnav_bag_screen')
+    g.run('press A 4', 'wait 60')
+    check(u8(g, 'sPatch') == 1 and u16(g, 'sPatchSpecies') == SPECIES_LILLIPUP,
+          f'bag_use: no search after the pick ({g.shot("_dn_bag_pick")})')
+    log('USE opened the screen; its pick started the search')
+
+
+@test
+def needs_item(g):
+    """R does nothing without the DexNav before Juniper's lesson; a save past the lesson (made before the DexNav was
+    in the game) gets it with the first R."""
+    suite.boot_continue(g, saveram=base(dexnav=False).var(VAR_ROUTE1_LESSON, 0).write('_dn_noitem'))
+    g.run(*['press Up 16'] * 7, 'wait 30')
+    g.run('press L+R 4', 'wait 90')
+    check(ITEM_DEXNAV not in ram_key_items(g) and not u8(g, 'sRequested'),
+          f'needs_item: R before the lesson did something ({g.shot("_dn_noitem")})')
+    suite.boot_continue(g, saveram=base(dexnav=False).var(VAR_ROUTE1_LESSON, 1).write('_dn_olditem'))
+    g.run(*['press Up 16'] * 7, 'wait 30')
+    g.run('press L+R 4', 'wait 90')
+    check(ITEM_DEXNAV in ram_key_items(g), f'needs_item: the old save got no DexNav ({g.shot("_dn_olditem")})')
+    check(u8(g, 'sListCount') > 0, f'needs_item: no screen with the DexNav just given ({g.shot("_dn_olditem2")})')
+    g.run('press B 4', 'wait 60')
+    log('no DexNav before the lesson: R ignored; past it: given on the first R, screen open')
+
+
+@test
+def gift(g):
+    """Juniper's catching lesson on Route 1 (from Nuvema's north exit): she gives the DexNav before going on ahead,
+    and the lesson ends as in vanilla."""
+    suite.boot_continue(g, saveram=M.Save().put(*NUVEMA_EXIT).var(VAR_NUVEMA_EXIT, 2).write('_dn_gift'))
+    g.run(*['press Up 16', 'wait 20'] * 4)
+    shot = None
+    for k in range(150):
+        g.run('press A 4', 'wait 60')
+        if shot is None and ITEM_DEXNAV in ram_key_items(g):
+            shot = g.shot('dexnav_gift')
+        if M.var(g, VAR_ROUTE1_LESSON) == 1:
+            break
+    check(ITEM_DEXNAV in ram_key_items(g), f'gift: no DexNav after the lesson ({g.shot("_dn_nogift")})')
+    check(M.var(g, VAR_ROUTE1_LESSON) == 1, f'gift: the lesson did not end ({g.shot("_dn_lesson")})')
+    check(M.can_move(g), f'gift: the player can not walk after the lesson ({g.shot("_dn_stuck")})')
+    log(f'the DexNav given in the lesson (A press {k}); the lesson ended and the player walks on')
 
 
 @test

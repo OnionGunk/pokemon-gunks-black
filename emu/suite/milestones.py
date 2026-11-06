@@ -117,7 +117,7 @@ def person_record(zone, npc):
     r[0xC:0xF] = bytes([npc[6]] * 3)
     struct.pack_into('<6H', r, 0x10, zone, npc[1], npc[3], npc[4], npc[5], npc[7])
     struct.pack_into('<6H', r, 0x20, npc[14], y, npc[15], npc[14], y, npc[15])
-    struct.pack_into('<2H', r, 0x2C, y * 16 - 1 if y else 0, y)
+    struct.pack_into('<2H', r, 0x2C, (y * 16 - 1) & 0xFFFF if y else 0, y)
     if npc[3] == 1:
         struct.pack_into('<HxxH', r, 0x30, npc[6], 1)
     return bytes(r)

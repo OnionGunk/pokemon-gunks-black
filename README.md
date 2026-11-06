@@ -23,7 +23,8 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **Move Tutor in every Pokémon Center:** the Move Deleter and the move reminder, who now works for free.
 - **HM moves without teaching them** (in, not yet seen in the game): a Pokémon that could learn an HM you
   own can use it in the field.
-- **DexNav:** L+R opens the DexNav list for where you stand: tall grass, dark grass, a cave floor or the water
+- **DexNav:** a key item Professor Juniper gives you at the end of her catching lesson on Route 1 (an older save
+  already past it gets it the first time you press R). L+R, or USE in the Bag, opens the DexNav list for where you stand: tall grass, dark grass, a cave floor or the water
   while surfing, each with its own Pokémon, including the rare ones from rustling grass, dust clouds and rippling
   water (● caught, ○ seen, ????? not seen yet). Pick one you've seen and Black's own rustle, dust cloud or ripple
   appears a few tiles away; walk into it within 10 seconds to meet that Pokémon. After that, R searches for it
