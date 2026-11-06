@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CODE = os.path.join(ROOT, 'gunk', 'code')
 OUT = os.path.join(ROOT, 'build', 'code')
 CFLAGS = ['-mthumb', '-march=armv5te', '-mtune=arm946e-s', '-Os', '-ffreestanding', '-nostdlib', '-fno-builtin',
-          '-ffunction-sections', '-fdata-sections', '-Wall', '-Werror']
+          '-ffunction-sections', '-fdata-sections', '-fno-jump-tables', '-Wall', '-Werror']  # no libgcc for its case helpers
 
 
 def _tool(name):

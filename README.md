@@ -23,8 +23,14 @@ planned changes, with what Black already has, is in [docs/GUNK_CHANGES.md](docs/
 - **Move Tutor in every Pokémon Center:** the Move Deleter and the move reminder, who now works for free.
 - **HM moves without teaching them** (in, not yet seen in the game): a Pokémon that could learn an HM you
   own can use it in the field.
-- **DexNav:** press R in tall grass to meet a Pokémon of that route, starting with one you haven't caught; L+R
-  switches to the next. Searching for the same one again builds a chain for better IVs and shiny odds.
+- **DexNav:** L+R opens the DexNav list for where you stand: tall grass, dark grass, a cave floor or the water
+  while surfing, each with its own Pokémon, including the rare ones from rustling grass, dust clouds and rippling
+  water (● caught, ○ seen, ????? not seen yet). Pick one you've seen and Black's own rustle, dust cloud or ripple
+  appears a few tiles away; walk into it within 10 seconds to meet that Pokémon. After that, R searches for it
+  again straight away. Searching for the same one again and again builds a chain (shiny rerolls; 1-3 perfect IVs
+  at 10, 20 and 30), and each Pokémon's search level (saved for the last 32 you searched) adds more shiny rerolls
+  and better IVs. Running from it, letting it get away or meeting another species ends the chain.
+- **Quick Run and Quick Ball:** in a wild battle, R runs and L throws your last ball (L+Left/Right picks another).
 - **Auto-run:** once you have the Running Shoes you run without holding B; hold B to walk.
 - **Follower Pokémon:** the first Pokémon in your party walks behind you: every species #1-649. #1-493 use
   Black's own overworld sprites, #494-649 the community-made HGSS-style Unova overworlds (credits below). It goes

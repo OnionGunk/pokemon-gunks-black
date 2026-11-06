@@ -424,6 +424,7 @@ ITEM_SUPER_REPEL, ITEM_MAX_REPEL, ITEM_REPEL = 76, 77, 79
 ENDLESS_REPEL_STEPS = 250
 VAR_A, VAR_B = 0x8020, 0x8021  # temporary script variables
 GUNK_SET_REPEL, GUNK_ENDLESS_REPEL = 0, 1  # gunk/code/script.c sub-commands
+GUNK_DEXNAV_COUNT, GUNK_DEXNAV_CURSOR, GUNK_DEXNAV_ENTRY, GUNK_DEXNAV_PICK = 2, 3, 4, 5
 
 
 def repel_prompt(rom):
@@ -710,12 +711,14 @@ def move_tutor(rom):
 
 
 def dexnav(rom):
-    """DexNav (gunk/code/dexnav.c): R in tall grass meets the chosen Pokémon of this route (first the first you
-    haven't caught; L+R switches), from its own grass slot, and repeated searches build a chain for shiny odds and
-    perfect IVs; running from a wild battle ends the chain. Hooks in the field overlay: the per-frame
-    input routine in its table at 0x021D8900, the per-frame step-encounter check (FUN_overlay_d_21__0218b208,
-    called twice), the encounter's slot pick (FUN_overlay_d_21__021a954c, called at 0x021AA048), its personality
-    roll and its building of the wild Pokémon, and the shaking grass's encounter (the search uses Black's own)."""
+    """DexNav (gunk/code/dexnav.c): R opens the DexNav screen (dexnav_screen) for the player's spot; the Pokémon
+    picked there comes out of Black's own effect for the terrain (rustling grass, dust cloud, rippling water) from
+    one of its own slots, and repeated searches build a chain for shiny odds and perfect IVs; running from a wild
+    battle ends the chain. Hooks in the field overlay: the per-frame input routine in its table at 0x021D8900, the
+    per-frame step-encounter check (FUN_overlay_d_21__0218b208, called twice), the encounter's slot pick
+    (FUN_overlay_d_21__021a954c, called at 0x021AA048), its personality roll and its building of the wild Pokémon,
+    the effect's encounter, item roll and tile scan. In ARM9, the game's per-frame save step (for the search
+    levels, gunk/code/dexnav_save.c)."""
     code = bytearray(rom.overlay(OVL_FIELD))
     base = rom.overlay_base(OVL_FIELD)
     patch(code, 0x021D8900 - base, 'f12d1a02', struct.pack('<I', code_syms['Gunk_FieldInput'] | 1).hex())
@@ -728,7 +731,16 @@ def dexnav(rom):
         patch(code, site - base, thumb_bl(site, retail), thumb_bl(site, code_syms[sym]))
     site = 0x021AA9EA  # the shaking grass's encounter (FUN_overlay_d_21__021aa944) -> the wrapper, for the search's
     patch(code, site - base, thumb_bl(site, 0x021A9F40), thumb_bl(site, code_syms['Gunk_DexNav_EffectEncount']))
+    site = 0x021AA9AC  # its roll for an item instead (dust cloud, bridge shadow): never for the search's
+    patch(code, site - base, thumb_bl(site, 0x02005728), thumb_bl(site, code_syms['Gunk_DexNav_EffectRoll']))
+    site = 0x021AADBC  # the effect module's tile scan reads each tile's kind: dark grass counts while DexNav looks
+    patch(code, site - base, thumb_bl(site, 0x021AB504), thumb_bl(site, code_syms['Gunk_DexNav_ScanKind']))
     rom.replace_overlay(OVL_FIELD, bytes(code))
+    # SaveData_SaveAsyncMain's blx to GFL's per-frame save step -> the wrapper that saves the search levels after it
+    code = bytearray(rom.arm9())
+    site = 0x02007186
+    patch(code, site - ARM9, '2af016ed', thumb_bl(site, code_syms['Gunk_SaveMain']))
+    rom.replace_arm9(bytes(code))
     # the wild battle event (script overlay) reads the battle's result: through the wrapper, which ends a chain on a run
     code = bytearray(rom.overlay(OVL_SCRIPT))
     site = 0x0216E744
@@ -782,6 +794,77 @@ def dexnav_got_away(rom):
                    (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
         at = len(sf.data) + len(sf.data) % 2
         sf.set_entry(index, sf.append(S.assemble(at, program)))
+    _edit_script(rom, SCRIPT_FIELD_COMMON, script)
+
+
+DEXNAV_SCREEN_SCRIPT, DEXNAV_NOTHING_SCRIPT, DEXNAV_NOWHERE_SCRIPT, DEXNAV_MESSAGE_SCRIPT = 10146, 10147, 10148, 10149
+MSG_DEXNAV_ASK, MSG_DEXNAV_UNSEEN, MSG_DEXNAV_SEEN, MSG_DEXNAV_CAUGHT, MSG_DEXNAV_NOTHING, MSG_DEXNAV_NOWHERE = range(16, 22)
+MSG_DEXNAV_NOT_HERE, MSG_DEXNAV_SURF, MSG_DEXNAV_LAND, MSG_DEXNAV_FISHING, MSG_DEXNAV_NOT_SEEN = range(22, 27)
+GUNK_DEXNAV_MESSAGE = 6
+DEXNAV_LIST_MAX = 12  # dexnav.h
+OP_MENU_OPEN, OP_MENU_ADD, OP_MENU_RUN = 0xB2, 0xAF, 0xB0  # (x u8, y u8, cursor, B cancels u8, var); (msg, help, value)
+VAR_C = 0x8022
+
+
+def dexnav_screen(rom):
+    """The DexNav screen (gunk/code/dexnav.c builds the list when R is pressed): script 10146, entry 16 of the
+    common file 872, asks which Pokémon to search for in Black's own list menu, one row per species of the spot
+    (● caught, ○ seen, ????? not seen; only seen ones can be picked), with the cursor on the last pick. R with a
+    Pokémon picked searches for it at once (entry 19 says why when it can't be found here); L+R reopens the screen.
+    Its rows come from new script command
+    sub-commands (gunk/code/script.c): each puts the species name in buffer 0 and says which of three messages to
+    add; the menu formats a row when it is added. Picking one starts the search when the screen closes; B closes it.
+    Entries 17 and 18 say there is nothing to search for here, or nowhere nearby for the Pokémon to appear."""
+    name = [0xF000, 0x101, 1, 0]  # the species in buffer 0
+
+    def text(items):
+        assert len(items) == MSG_DEXNAV_ASK
+        attr = items[0][1]
+        for t in (text5.chars('Which Pokémon will you search for?'), text5.chars('?????'), text5.chars('○ ') + name,
+                  text5.chars('● ') + name, text5.chars('There are no Pokémon to search for here.'),
+                  text5.chars("There's nowhere nearby for it to appear..."),
+                  name + text5.chars(" isn't found around here."), text5.chars('Look for ') + name + text5.chars(' while surfing.'),
+                  text5.chars('Look for ') + name + text5.chars(' away from the water.'),
+                  name + text5.chars(' can only be found by fishing here.'),
+                  text5.chars("You haven't seen that Pokémon yet.")):
+            items.append((t, attr))
+    _edit_text(rom, 'a/0/0/3', TEXT_FIELD_COMMON, text)
+    S = script5
+
+    def add(sf, script_id, program):
+        index = sf.add_entry()
+        assert SCRIPT_FIELD_COMMON_FIRST_ID + index == script_id
+        at = len(sf.data) + len(sf.data) % 2
+        sf.set_entry(index, sf.append(S.assemble(at, program)))
+
+    def script(sf):
+        program = [(S.OP_LOCK,), (S.OP_MESSAGE, MSG_DEXNAV_ASK, 2),
+                   (S.OP_GUNK, GUNK_DEXNAV_CURSOR, 0, VAR_B),
+                   (OP_MENU_OPEN, ('u8', 31), ('u8', 1), VAR_B, ('u8', 1), VAR_A)]
+        for i in range(DEXNAV_LIST_MAX):
+            program += [(S.OP_GUNK, GUNK_DEXNAV_ENTRY, i, VAR_C)]
+            for mark, msg in ((1, MSG_DEXNAV_UNSEEN), (2, MSG_DEXNAV_SEEN), (3, MSG_DEXNAV_CAUGHT)):
+                skip = f'row{i}_{mark}'
+                program += [(S.OP_PUSH_VAR, VAR_C), (S.OP_PUSH_VALUE, mark), (S.OP_COMPARE, 1),
+                            (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', skip)),
+                            (OP_MENU_ADD, msg, 0xFFFF, i), skip]
+        program += [(OP_MENU_RUN,), (S.OP_CLOSE,), (S.OP_GUNK, GUNK_DEXNAV_PICK, VAR_A, VAR_C),
+                    (S.OP_PUSH_VAR, VAR_C), (S.OP_PUSH_VALUE, 2), (S.OP_COMPARE, 1),
+                    (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', 'done')),
+                    (S.OP_MESSAGE, MSG_DEXNAV_NOT_SEEN, 2), (S.OP_WAIT_A,), (S.OP_CLOSE,),
+                    'done', (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
+        add(sf, DEXNAV_SCREEN_SCRIPT, program)
+        for script_id, msg in ((DEXNAV_NOTHING_SCRIPT, MSG_DEXNAV_NOTHING), (DEXNAV_NOWHERE_SCRIPT, MSG_DEXNAV_NOWHERE)):
+            add(sf, script_id, [(S.OP_LOCK,), (S.OP_MESSAGE, msg, 2), (S.OP_WAIT_A,), (S.OP_CLOSE,),
+                                (S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)])
+        # R with a registered Pokémon that can't be searched for here: why (dexnav.c MSG_*, 1-4)
+        program = [(S.OP_LOCK,), (S.OP_GUNK, GUNK_DEXNAV_MESSAGE, 0, VAR_A)]
+        for code, msg in enumerate((MSG_DEXNAV_NOT_HERE, MSG_DEXNAV_SURF, MSG_DEXNAV_LAND, MSG_DEXNAV_FISHING), 1):
+            program += [(S.OP_PUSH_VAR, VAR_A), (S.OP_PUSH_VALUE, code), (S.OP_COMPARE, 1),
+                        (S.OP_IF, ('u8', S.IF_DIFFERENT), ('label', f'm{code}')),
+                        (S.OP_MESSAGE, msg, 2), (S.OP_WAIT_A,), (S.OP_CLOSE,), f'm{code}']
+        program += [(S.OP_RELEASE_A,), (S.OP_RELEASE_B,), (S.OP_END,)]
+        add(sf, DEXNAV_MESSAGE_SCRIPT, program)
     _edit_script(rom, SCRIPT_FIELD_COMMON, script)
 
 
@@ -888,4 +971,4 @@ def followers(rom):
 PATCHES = [identity, title_logo, item_icons, faster_eggs, auto_run, trade_evolutions, vitamins_to_252, text_fast_default, text_instant,
            code_home, options_instant, exp_bar_x2, quick_run, summary_iv_ev, script_command, repel_prompt,
            endless_repel, exp_all, field_moves, move_tutor,
-           dexnav, followers, follower_talk, dexnav_got_away]
+           dexnav, followers, follower_talk, dexnav_got_away, dexnav_screen]
