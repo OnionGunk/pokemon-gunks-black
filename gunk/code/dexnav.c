@@ -612,6 +612,8 @@ u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)
         sMessageSpecies = sLastPick;
         return Event_Script(gsys, DEXNAV_MESSAGE_SCRIPT, 0, zone);
     }
+    if (DEXNAV_GRAPHICAL && sListCount)
+        return (u32)DexNavUi_FieldEvent(gsys, fieldSys);
     return Event_Script(gsys, sListCount ? DEXNAV_SCREEN_SCRIPT : DEXNAV_NOTHING_SCRIPT, 0, zone);
 }
 

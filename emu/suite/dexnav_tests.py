@@ -147,7 +147,7 @@ def screen(g, last=None):
     """L+R: the screen opens with the spot's list. With `last`, the cursor starts on that species."""
     if last is not None:
         g.poke(SYM['sLastPick'], struct.pack('<H', last))
-    g.run('press L+R 4', 'wait 90')
+    g.run('press L+R 4', 'wait 150')  # the screen fades in once the field has closed
     count = u8(g, 'sListCount')
     rows = [struct.unpack_from('<HB', g.read(SYM['sList'] + 4 * i, 3)) for i in range(count)]
     return rows
@@ -159,7 +159,7 @@ def search(g, species=None):
     if species is None:
         rows = screen(g)
         check(rows, f'search: empty list at {M.player(g)}')
-        g.run('press A 4', 'wait 60')
+        g.run('press A 4', 'wait 300')  # it fades out, the field opens, then the search starts
     else:
         rows = species
         g.poke(SYM['sLastPick'], struct.pack('<H', species))
@@ -282,7 +282,7 @@ def run_search(g, kinds, label, name, tile_ok=None, reset=None):
     the terrain's. tile_ok(x, z) checks where the effect came out; reset() puts the player back at the start where
     walking can't (off the water)."""
     rows = screen(g)
-    g.run('press B 4', 'wait 60')
+    g.run('press B 4', 'wait 300')  # the field opens again
     check(rows, f'{label}: empty list at {M.player(g)}')
     check(all(k in kinds for _, k in rows), f'{label}: list {rows} has tables outside {kinds}')
     log(f'{label}: list {rows}')
@@ -336,7 +336,7 @@ def screen_marks(g):
     g.shot('dexnav_screen')
     check([s for s, _ in rows][:2] == [SPECIES_PATRAT, SPECIES_LILLIPUP], f'screen: rows {rows}')
     check({k for _, k in rows} <= {0, 2}, f'screen: tables {rows}')
-    g.run('press B 4', 'wait 60')
+    g.run('press B 4', 'wait 300')  # the field opens again
     check(not u8(g, 'sPatch') and not u8(g, 'sPick'), 'screen: B started a search')
     picked = search(g)
     check(picked[0] == SPECIES_LILLIPUP, f'screen: the cursor started on {picked[0]}, not the first not caught')
@@ -358,7 +358,7 @@ def r_flow(g):
     g.run('press A 4', 'wait 60')
     check(not u8(g, 'sPatch') and not u8(g, 'sPick'), 'r_flow: an unseen Pokémon was picked')
     g.shot('dexnav_not_seen')
-    g.run(*['press B 4', 'wait 40'] * 3)
+    g.run(*['press B 4', 'wait 40'] * 3, 'wait 200')
     water = [s for s in species_of(table(g), 3) if s][0]
     g.poke(SYM['sLastPick'], struct.pack('<H', water))
     g.run('press R 4', 'wait 60')
@@ -397,15 +397,15 @@ def needs_item(g):
     in the game) gets it with the first R."""
     suite.boot_continue(g, saveram=base(dexnav=False).var(VAR_ROUTE1_LESSON, 0).write('_dn_noitem'))
     g.run(*['press Up 16'] * 7, 'wait 30')
-    g.run('press L+R 4', 'wait 90')
+    g.run('press L+R 4', 'wait 150')
     check(ITEM_DEXNAV not in ram_key_items(g) and not u8(g, 'sRequested'),
           f'needs_item: R before the lesson did something ({g.shot("_dn_noitem")})')
     suite.boot_continue(g, saveram=base(dexnav=False).var(VAR_ROUTE1_LESSON, 1).write('_dn_olditem'))
     g.run(*['press Up 16'] * 7, 'wait 30')
-    g.run('press L+R 4', 'wait 90')
+    g.run('press L+R 4', 'wait 150')
     check(ITEM_DEXNAV in ram_key_items(g), f'needs_item: the old save got no DexNav ({g.shot("_dn_olditem")})')
     check(u8(g, 'sListCount') > 0, f'needs_item: no screen with the DexNav just given ({g.shot("_dn_olditem2")})')
-    g.run('press B 4', 'wait 60')
+    g.run('press B 4', 'wait 300')  # the field opens again
     log('no DexNav before the lesson: R ignored; past it: given on the first R, screen open')
 
 

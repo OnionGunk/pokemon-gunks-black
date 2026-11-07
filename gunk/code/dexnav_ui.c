@@ -1,7 +1,9 @@
 /* The DexNav screen as a start-menu app: the spot's species as a grid of icons (a cursor, caught/seen marks, the
    cursor's name below; A searches, B goes back), drawn with Black's own BG, window, font and archive routines, set up the
    way the Bag sets up its screen (overlay 70, proc 0x021BB96C). The start menu runs it like its other apps (table
-   gGunkMenuApps, app DEXNAV_APP), with the field shut down; B closes it and the menu comes back.
+   gGunkMenuApps, app DEXNAV_APP), with the field shut down; B closes it and the menu comes back. L+R in the field
+   opens the same screen through its own event (DexNavUi_FieldEvent below: fade out, close the field, run the proc, reopen
+   the field, fade in), the sequence the start menu uses; B there returns to the field.
    Routines (found from the Bag's proc; see docs/GUNK_CHANGES.md row 9): ARM ones without |1. */
 #include "dexnav.h"
 
@@ -67,6 +69,8 @@
 #define PAL_ICON 1               /* 1-3: the icon palettes */
 #define PAL_SILHOUETTE 4         /* a Pokémon not seen yet */
 #define REG_DISPCNT (*(volatile u32 *)0x04000000)
+#define REG_POWCNT (*(volatile u16 *)0x04000304)
+#define POWCNT_MAIN_ON_TOP 0x8000
 #define REG_BLDCNT (*(volatile u16 *)0x04000050)
 #define REG_MASTER_BRIGHT (*(volatile u16 *)0x0400006C)
 #define REG_MASTER_BRIGHT_SUB (*(volatile u16 *)0x0400106C)
@@ -273,6 +277,7 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
     REG_DISPCNT = (REG_DISPCNT & ~DISPCNT_LAYERS) | DISPCNT_BG0 | DISPCNT_BG1;
     REG_DISPCNT_SUB &= ~DISPCNT_LAYERS;
     SUB_BG_PALETTES[0] = sPalette[C_BACKDROP];
+    REG_POWCNT &= ~POWCNT_MAIN_ON_TOP;  /* the main screen at the bottom (the field has it on top) */
     REG_MASTER_BRIGHT = 0;
     REG_MASTER_BRIGHT_SUB = 0;
     return 1;
@@ -341,6 +346,8 @@ s32 DexNavUi_Exit(void *proc, s32 *seq, void *param, void *work)
 
 const u32 gDexNavUiProc[3] = { (u32)DexNavUi_Init, (u32)DexNavUi_Main, (u32)DexNavUi_Exit };
 
+#define NO_OVERLAY_PROC 0xFFFFFFFF
+
 /* the menu's side: the app's parameters (a static word the menu's free step leaves alone: 1 when a row was picked)
    and its return (0: back to the menu; a pick closes the menu for the search) */
 static u32 sParam;
@@ -358,6 +365,68 @@ void DexNavUi_Free(void *param)
 u32 DexNavUi_Return(void *menu, void *param)
 {
     return *(u32 *)param ? Gunk_MenuClose(menu, ITEM_EVENT_DEXNAV_PICK) : 0;
+}
+
+/* L+R in the field: the screen as an event of its own, the way the start menu's event runs an app (overlay 10,
+   FUN_overlay_d_10__021607e0): fade out, close the field, run the screen's proc, open the field, fade in. A pick has
+   set sPick, so the search starts once the field runs again. */
+#define Event_Create ((void *(*)(void *, void *, void *, u32))(0x020122C0 | 1))  /* gsys, parent, func, work size */
+#define Event_GetWork ((void *(*)(void *))(0x020124E8 | 1))
+#define Event_Call ((void (*)(void *, void *))(0x02012374 | 1))                /* event, sub-event */
+#define GameSys_CallProc ((void (*)(void *, u32, const void *, void *))(0x020120B4 | 1))  /* overlay, proc, param */
+#define GameSys_ProcRunning ((u32 (*)(void *))(0x020120F0 | 1))
+#define GameSys_FieldSys ((void *(*)(void *))(0x0201210C | 1))
+#define Event_FieldClose ((void *(*)(void *, void *))(0x020144DC | 1))           /* gsys, fieldSys */
+#define Event_FieldOpen ((void *(*)(void *))(0x020145CC | 1))                    /* gsys */
+#define Event_FadeOut ((void *(*)(void *, void *, u32, u32))(0x021BE8D4 | 1))    /* gsys, fieldSys, 0, 0 */
+#define Event_FadeIn ((void *(*)(void *, void *, u32, u32, u32, u32, u32))(0x021BE92C | 1))
+#define Field_Restore ((void (*)(void))(0x02188DA0 | 1))  /* what the menu runs after opening the field */
+#define Field_RestoreDisplay ((void (*)(void *))(0x02188DB0 | 1))
+
+struct FieldScreen {
+    void *gsys, *fieldSys;
+};
+
+static u32 FieldScreenEvent(void *event, s32 *seq, void *work)
+{
+    struct FieldScreen *w = work;
+
+    switch (*seq) {
+    case 0:
+        Event_Call(event, Event_FadeOut(w->gsys, w->fieldSys, 0, 0));
+        break;
+    case 1:
+        Event_Call(event, Event_FieldClose(w->gsys, w->fieldSys));
+        break;
+    case 2:
+        GameSys_CallProc(w->gsys, NO_OVERLAY_PROC, gDexNavUiProc, DexNavUi_Setup(0));
+        break;
+    case 3:
+        if (GameSys_ProcRunning(w->gsys))
+            return 0;
+        Event_Call(event, Event_FieldOpen(w->gsys));
+        break;
+    case 4:
+        w->fieldSys = GameSys_FieldSys(w->gsys);
+        Field_Restore();
+        Field_RestoreDisplay(w->fieldSys);
+        Event_Call(event, Event_FadeIn(w->gsys, w->fieldSys, 0, 0, 0, 0, 0));
+        break;
+    default:
+        return 1;
+    }
+    ++*seq;
+    return 0;
+}
+
+void *DexNavUi_FieldEvent(void *gsys, void *fieldSys)
+{
+    void *event = Event_Create(gsys, 0, FieldScreenEvent, sizeof(struct FieldScreen));
+    struct FieldScreen *w = Event_GetWork(event);
+
+    w->gsys = gsys;
+    w->fieldSys = fieldSys;
+    return event;
 }
 
 /* the start menu's apps (retail table at 0x021712CC: overlay, proc data, setup, return, alt, free), the DexNav last */
