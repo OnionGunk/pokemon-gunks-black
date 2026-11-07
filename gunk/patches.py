@@ -872,8 +872,11 @@ SCRIPT_ROUTE1, TEXT_ROUTE1 = 634, 349  # zone 317: Juniper's catching lesson
 MSG_JUNIPER_GOING_AHEAD = 6
 JUNIPER_BALLOON = (2, 5, 0)  # her lines' balloon arguments after the message number
 OVL_MENU = 10  # the start menu shares overlay 10 with the script engine
-MENU_BAG_RETURN = 0x02171308  # the bag's entry in the start menu's app table: its return handler
 MENU_ITEM_EVENT_CALL = 0x0215FEAA  # the menu event's bl to the item event maker (FUN_overlay_d_10__021644f4)
+MENU_APPS = 0x021712CC  # the start menu's apps: overlay, proc data, setup, return, alt function, free
+# the literal-pool words (in FUN_overlay_d_10__02160800) holding the table's field addresses, and the field
+MENU_APP_LITERALS = [(0x02160A10, 0x10), (0x02160A14, 0x08), (0x02160A18, 0x14), (0x02160A1C, 0x04),
+                     (0x02160A20, 0x00), (0x02160A24, 0x0C)]
 PAGE = [0xF000, 0xBE01, 0, 0xFFFE]  # wait for A, then a new page
 WAIT = [0xF000, 0xBE01, 0]
 
@@ -901,10 +904,13 @@ def dexnav_item(rom):
     patch(code, 0x021B6EE8 - base, '0a2d', '0b2d')  # cmp r5, #10 -> #11: the DexNav after endless_repel's two
     rom.replace_overlay(70, bytes(code))
 
+    # the start menu's app table (12 entries of 6 words) -> gGunkMenuApps (gunk/code/dexnav_ui.c): the same apps
+    # with the bag's return handler wrapped (Gunk_BagReturn) and the DexNav screen after them
     code = bytearray(rom.overlay(OVL_MENU))
     base = rom.overlay_base(OVL_MENU)
-    patch(code, MENU_BAG_RETURN - base, struct.pack('<I', 0x02161071).hex(),
-          struct.pack('<I', code_syms['Gunk_BagReturn'] | 1).hex())
+    apps = code_syms['gGunkMenuApps']
+    for site, field in MENU_APP_LITERALS:
+        patch(code, site - base, struct.pack('<I', MENU_APPS + field).hex(), struct.pack('<I', apps + field).hex())
     patch(code, MENU_ITEM_EVENT_CALL - base, thumb_bl(MENU_ITEM_EVENT_CALL, 0x021644F4),
           thumb_bl(MENU_ITEM_EVENT_CALL, code_syms['Gunk_ItemEvent']))
     rom.replace_overlay(OVL_MENU, bytes(code))

@@ -96,6 +96,7 @@ struct ListEntry {
 };
 
 static struct ListEntry sList[DEXNAV_LIST_MAX];
+static u32 sListSpot;        /* the zone and tile it was last built for by DexNav_Frame */
 static u8 sListCount;
 static const u8 *sListTable;  /* the table the list was built from */
 static u8 sPick;              /* 1 + the row picked on the screen, until the effect is placed */
@@ -307,8 +308,10 @@ static int PlacePatch(void *fieldSys, void *enc)
     s32 px, pz;
     int i, n, terrain, kept = 0;
 
-    if (!effects || !player || EffectOut(enc))
+    if (!effects || !player)
         return 0;
+    if (EffectOut(enc))  /* a natural one (with a badge the module spawns them): the search's takes its place */
+        Effect_Clear(enc, effects);
     attr = PlayerAttr(fieldSys);
     terrain = Terrain(attr);
     own = Effect_Kind(attr);
@@ -348,6 +351,18 @@ void DexNav_Frame(void *fieldSys)
     void *enc;
     u32 gap;
 
+    /* the start menu shuts the field down (and takes X before this runs): the list for the bag's USE (the
+       graphical screen) is kept up to date here, rebuilt when the player is on another tile */
+    if (DEXNAV_GRAPHICAL) {
+        u8 *player = MMdlSys_Player(*(void **)((u8 *)fieldSys + FIELD_MMDLSYS));
+        u32 spot = player ? (u32)*(u16 *)((u8 *)fieldSys + FIELD_ZONE) << 20 ^ MMdl_GridX(player) << 10 ^
+                            MMdl_GridZ(player) : 0;
+
+        if (spot != sListSpot) {
+            sListSpot = spot;
+            DexNav_BuildList(fieldSys);
+        }
+    }
     if (!sPatch)
         return;
     enc = FieldSys_GetEncount(fieldSys);
@@ -454,15 +469,26 @@ u32 DexNav_Message(void *ws)
     return msg;
 }
 
+u32 DexNav_ListSpecies(u32 i)
+{
+    return i < sListCount ? sList[i].species : 0;
+}
+
+u32 DexNav_ListMark(u32 i)
+{
+    u16 species = DexNav_ListSpecies(i);
+
+    if (!species)
+        return 0;
+    return Caught(species) ? 3 : Seen(species) ? 2 : 1;
+}
+
 u32 DexNav_ListEntry(u32 i, void *ws)
 {
-    u16 species;
-
     if (i >= sListCount)
         return 0;
-    species = sList[i].species;
-    WordSet_SpeciesName(ws, 0, species);
-    return Caught(species) ? 3 : Seen(species) ? 2 : 1;
+    WordSet_SpeciesName(ws, 0, sList[i].species);
+    return DexNav_ListMark(i);
 }
 
 u32 DexNav_ListPick(u32 i)
@@ -509,13 +535,28 @@ static int SpotList(const u8 *table, void *fieldSys)
 }
 
 /* the bag's USE on the DexNav: the screen, as L+R opens it (a pick starts the search once the field runs again) */
-u32 DexNav_ItemEvent(void *fieldSys)
+u32 DexNav_BuildList(void *fieldSys)
 {
     const u8 *table = *(const u8 **)((u8 *)FieldSys_GetEncount(fieldSys) + 0xC);
 
     SpotList(table && (table[7] & ENC_LOADED) ? table : 0, fieldSys);
-    return Event_Script(*(void **)((u8 *)fieldSys + FIELD_GSYS), sListCount ? DEXNAV_SCREEN_SCRIPT : DEXNAV_NOTHING_SCRIPT,
+    return sListCount;
+}
+
+u32 DexNav_ItemEvent(void *fieldSys)
+{
+    return Event_Script(*(void **)((u8 *)fieldSys + FIELD_GSYS),
+                        DexNav_BuildList(fieldSys) ? DEXNAV_SCREEN_SCRIPT : DEXNAV_NOTHING_SCRIPT,
                         0, *(u16 *)((u8 *)fieldSys + FIELD_ZONE));
+}
+
+/* the graphical screen's pick (dexnav_ui.c): the menu closes through this event, the message script with no message
+   pending, and the search starts once the field runs again */
+u32 DexNav_PickEvent(void *fieldSys)
+{
+    sMessage = 0;
+    return Event_Script(*(void **)((u8 *)fieldSys + FIELD_GSYS), DEXNAV_MESSAGE_SCRIPT, 0,
+                        *(u16 *)((u8 *)fieldSys + FIELD_ZONE));
 }
 
 u32 Gunk_StepEncount(void *state, void *x, void *fieldSys)

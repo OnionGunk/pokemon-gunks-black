@@ -171,6 +171,50 @@ def search(g, species=None):
     return picked
 
 
+STEP = {'Right': (1, 0), 'Left': (-1, 0), 'Down': (0, 1), 'Up': (0, -1)}
+
+
+def land(x, z):
+    """Ground the map says is walked on (the tile layer marks the sea away from a shore as walls, so not "water")."""
+    return M.mapdata.walkable(M.world(0).tile(x, z))
+
+
+def walk_to(g, tile, until=None, steps=30):
+    """Walk towards tile until there, or with until(), until it is true (waiting on the tile): the path taken."""
+    back = {'Left': 'Right', 'Right': 'Left', 'Up': 'Down', 'Down': 'Up'}
+    last = None
+    path = []
+    surfing = not land(*M.player(g))
+    for _ in range(steps):
+        if until and until():
+            break
+        x, z = M.player(g)
+        path.append((x, z))
+        dx, dz = tile[0] - x, tile[1] - z
+        if (dx, dz) == (0, 0):
+            if not until:
+                break
+            g.run('wait 30')
+            continue
+        towards = [d for d, n in (('Right', dx), ('Left', -dx), ('Down', dz), ('Up', -dz)) if n > 0]
+        towards.sort(key=lambda d: -abs(dx if d in ('Left', 'Right') else dz))
+        # nearer axis first, then around an obstacle (never straight back the way we came); surfing, never ashore
+        # (the player would get off and could not get back on)
+        for d in towards + [d for d in ('Right', 'Left', 'Down', 'Up') if d not in towards and d != back.get(last)]:
+            if surfing and land(x + STEP[d][0], z + STEP[d][1]):
+                continue
+            for _ in range(2):  # the first press may only turn the player
+                g.run(f'press {d} 8', 'wait 12')  # 8 frames: one tile walking, at most one surfing
+                if M.player(g) != (x, z):
+                    break
+            if M.player(g) != (x, z):
+                last = d
+                break
+        else:
+            break  # boxed in: no way on
+    return path
+
+
 def meet(g, tile):
     """Walk into the effect at tile: the wild Pokémon met (decrypted), read where the game built it."""
     trace = os.path.join(OUT, '_dn_create.txt').replace(os.sep, '/')
@@ -178,29 +222,7 @@ def meet(g, tile):
         os.remove(trace)
     g.run(f'trace {CREATE} {trace}')
     try:
-        back = {'Left': 'Right', 'Right': 'Left', 'Up': 'Down', 'Down': 'Up'}
-        last = None
-        path = []
-        for _ in range(30):
-            if not u8(g, 'sPatch'):
-                break
-            x, z = M.player(g)
-            path.append((x, z))
-            dx, dz = tile[0] - x, tile[1] - z
-            if (dx, dz) == (0, 0):
-                g.run('wait 30')
-                continue
-            towards = [d for d, n in (('Right', dx), ('Left', -dx), ('Down', dz), ('Up', -dz)) if n > 0]
-            towards.sort(key=lambda d: -abs(dx if d in ('Left', 'Right') else dz))
-            # nearer axis first, then around an obstacle (never straight back the way we came)
-            for d in towards + [d for d in ('Right', 'Left', 'Down', 'Up') if d not in towards and d != back.get(last)]:
-                for _ in range(2):  # the first press may only turn the player
-                    g.run(f'press {d} 8', 'wait 12')  # 8 frames: one tile walking, at most one surfing
-                    if M.player(g) != (x, z):
-                        break
-                if M.player(g) != (x, z):
-                    last = d
-                    break
+        path = walk_to(g, tile, until=lambda: not u8(g, 'sPatch'))
         g.run('wait 950')
     finally:
         g.run(f'unwatch {CREATE}')
@@ -255,19 +277,47 @@ def check_search(g, picked, mon, kinds, label):
     log(f'{label}: met {species} from table {kind}, level {levels[species]}')
 
 
-def run_search(g, kinds, label, name, tile_ok=None):
+def run_search(g, kinds, label, name, tile_ok=None, reset=None):
     """Search for each row of the spot in turn (as long as the list goes), catching each: the rows' tables must be
-    the terrain's. tile_ok(x, z) checks where the effect came out."""
+    the terrain's. tile_ok(x, z) checks where the effect came out; reset() puts the player back at the start where
+    walking can't (off the water)."""
     rows = screen(g)
     g.run('press B 4', 'wait 60')
     check(rows, f'{label}: empty list at {M.player(g)}')
     check(all(k in kinds for _, k in rows), f'{label}: list {rows} has tables outside {kinds}')
     log(f'{label}: list {rows}')
+    start = M.player(g)
     for n, (species, kind) in enumerate(rows):
-        picked = search(g, species)
-        if tile_ok:
-            check(tile_ok(*picked[2]), f'{label}: effect at {picked[2]} is not on the right kind of tile')
-        mon = meet(g, picked[2])
+        for attempt in range(3):
+            if attempt:
+                if reset and M.player(g) != start:
+                    reset()
+                else:
+                    walk_to(g, start)  # back where the test began: the last try may have ended boxed in
+            try:
+                picked = search(g, species)
+            except TestFailure as e:  # the last catch may have ended where this species doesn't live (ashore)
+                if attempt == 2:
+                    raise
+                log(f'{label}: try {attempt + 1} for {species}: {e}; again')
+                continue
+            if tile_ok:
+                check(tile_ok(*picked[2]), f'{label}: effect at {picked[2]} is not on the right kind of tile')
+            try:
+                mon = meet(g, picked[2])
+                break
+            except TestFailure as e:
+                # the walker is greedy: between rocks and a shore it can miss the effect (or meet a land Pokémon)
+                if attempt == 2:
+                    raise
+                log(f'{label}: try {attempt + 1} for {species} missed ({e}); again')
+                if not M.can_move(g):
+                    flee(g)
+                for _ in range(10):
+                    if not u8(g, 'sPatch'):
+                        break
+                    g.run('wait 100')
+                g.run(*['press B 4', 'wait 40'] * 3)  # "The wild Pokémon got away..."
         check_search(g, picked, mon, kinds, label)
         catch(g, f'{name}_{n}_{species}_k{kind}')
         g.run(*['press B 4', 'wait 40'] * 2)
@@ -335,7 +385,7 @@ def bag_use(g):
     g.run('touch 200 157', 'wait 150')  # USE: the second-last of two rows
     check(u8(g, 'sListCount') > 0, f'bag_use: no screen after USE ({g.shot("_dn_bag_use")})')
     g.shot('dexnav_bag_screen')
-    g.run('press A 4', 'wait 60')
+    g.run('press A 4', 'wait 200')  # the screen fades out, the menu closes, then the search starts
     check(u8(g, 'sPatch') == 1 and u16(g, 'sPatchSpecies') == SPECIES_LILLIPUP,
           f'bag_use: no search after the pick ({g.shot("_dn_bag_pick")})')
     log('USE opened the screen; its pick started the search')
@@ -376,6 +426,31 @@ def gift(g):
     check(M.var(g, VAR_ROUTE1_LESSON) == 1, f'gift: the lesson did not end ({g.shot("_dn_lesson")})')
     check(M.can_move(g), f'gift: the player can not walk after the lesson ({g.shot("_dn_stuck")})')
     log(f'the DexNav given in the lesson (A press {k}); the lesson ended and the player walks on')
+
+
+# zones without a wild table (header word 10 = 0xFFFF): a town, and Entralink's own encounters (Entree Forest's
+# Pokémon are overworld objects, not table slots), where a DexNav catch would be illegal
+NO_WILD = [('Nuvema', NUVEMA_EXIT[1:], NUVEMA_EXIT[0]), ('Entralink', (29, 31), 279), ('Entree Forest', (14, 16), 280)]
+
+
+@test
+def no_wild(g):
+    """Where the zone has no wild table the DexNav refuses: L+R and the bag's USE list nothing, R with a Pokémon
+    registered starts no search, and the player can walk on."""
+    for label, (x, z), zone in NO_WILD:
+        suite.boot_continue(g, saveram=base(seen=[SPECIES_PATRAT]).put(zone, x, z).write('_dn_nowild'))
+        g.run('wait 60')
+        check(M.player(g) == (x, z), f'no_wild: not at {label} ({M.player(g)}, {g.shot("_dn_nowild_at")})')
+        rows = screen(g)
+        check(not rows, f'no_wild: {label} listed {rows} ({g.shot("_dn_nowild_list")})')
+        g.run(*['press B 4', 'wait 40'] * 3)
+        g.poke(SYM['sLastPick'], struct.pack('<H', SPECIES_PATRAT))
+        g.run('press R 4', 'wait 60')
+        check(not u8(g, 'sPatch') and not u8(g, 'sPick'), f'no_wild: R searched in {label} ({g.shot("_dn_nowild_r")})')
+        g.run(*['press B 4', 'wait 40'] * 3)
+        check(M.can_move(g), f'no_wild: stuck in {label} ({g.shot("_dn_nowild_stuck")})')
+        g.shot(f'dexnav_no_wild_{zone}')
+        log(f'{label} (zone {zone}): nothing listed, R no search, the player walks on')
 
 
 @test
@@ -426,11 +501,14 @@ def cave(g):
 def surf(g):
     """Surfing in zone 370: the surf and rippling-water tables, and rippling water."""
     path = base().badges(0xFF).put(370, *M.SURF_SHORE, M.SURF_HEIGHT).write('_dn_surf')
-    suite.boot_continue(g, saveram=path)
-    g.run('wait 30')
-    M.use_field_move(g, 'Down')
-    g.run(*['press Down 16', 'wait 40'] * 3)
-    run_search(g, (3, 4), 'surf', 'surf')
+
+    def start():
+        suite.boot_continue(g, saveram=path)
+        g.run('wait 30')
+        M.use_field_move(g, 'Down')
+        g.run(*['press Down 16', 'wait 40'] * 3)
+    start()
+    run_search(g, (3, 4), 'surf', 'surf', reset=start)
 
 
 @test

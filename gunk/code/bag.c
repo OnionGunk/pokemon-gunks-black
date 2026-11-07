@@ -85,19 +85,32 @@ const struct BagSpecial gGunkBagSpecial[11] = {
 #define MENU_WORK 0x18           /* the menu event's work (from +0x1C): the item event at +0x28 */
 #define MENU_ITEM_EVENT 0x28
 #define MENU_CLOSE_FOR_ITEM 3
+#define MENU_NEXT_APP 0xC        /* with MENU_SWITCH_APP: the app the menu runs next (its table: gGunkMenuApps) */
+#define MENU_SWITCH_APP 4
 #define ITEM_EVENT_DEXNAV 6
+/* the DexNav screen's app closes the menu for a pick (dexnav_ui.c) */
+u32 Gunk_MenuClose(u8 *menu, u32 event)
+{
+    *(u32 *)(*(u8 **)(menu + MENU_WORK) + MENU_ITEM_EVENT) = event;
+    return MENU_CLOSE_FOR_ITEM;
+}
 
 u32 Gunk_BagReturn(u8 *menu, u8 *param)
 {
     if (*(u32 *)(param + BAG_PARAM_RETURN) != BAG_RETURN_DEXNAV)
         return BagReturn_Retail(menu, param);
-    *(u32 *)(*(u8 **)(menu + MENU_WORK) + MENU_ITEM_EVENT) = ITEM_EVENT_DEXNAV;
-    return MENU_CLOSE_FOR_ITEM;
+    if (DEXNAV_GRAPHICAL && DexNav_ListCount()) {  /* kept up to date in the field (DexNav_Frame) */
+        *(u32 *)(menu + MENU_NEXT_APP) = DEXNAV_APP;
+        return MENU_SWITCH_APP;
+    }
+    return Gunk_MenuClose(menu, ITEM_EVENT_DEXNAV);  /* the list menu, or "There are no Pokémon to search for here." */
 }
 
 u32 Gunk_ItemEvent(u32 event, void *gsys, void *fieldSys)
 {
     if (event == ITEM_EVENT_DEXNAV)
         return DexNav_ItemEvent(fieldSys);
+    if (event == ITEM_EVENT_DEXNAV_PICK)
+        return DexNav_PickEvent(fieldSys);
     return ItemEvent_Retail(event, gsys, fieldSys);
 }
