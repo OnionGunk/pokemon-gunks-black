@@ -16,4 +16,8 @@ struct GunkInfo {
     u32 version;
 };
 
+/* dexnav_save.c: other things kept in the save (the slot tail after the DexNav levels) */
+u16 Gunk_KeptBall(void);
+void Gunk_KeepBall(u16 ball);
+
 #endif

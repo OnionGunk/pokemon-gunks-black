@@ -90,6 +90,8 @@ static int BallSlot(void)
     u16 balls[BALL_PAGE];
     int n = Balls(balls), i;
 
+    if (!sBall)
+        sBall = Gunk_KeptBall();  /* the ball picked before the game was switched off, if saved since */
     for (i = 0; i < n; i++)
         if (balls[i] == sBall)
             return i;
@@ -108,6 +110,7 @@ static void Cycle(int step)
         return;
     i += step;
     sBall = balls[i < 0 ? n - 1 : i >= n ? 0 : i];
+    Gunk_KeepBall(sBall);  /* into the save buffer: kept with the next save */
 }
 
 static void ShowPrompt(void);

@@ -13,7 +13,11 @@
    keeps showing "Saving..." until the last write is done. A power cut part-way leaves at least one good copy in
    the half the game loads (or an older one, from the save before). Reading: the half the game loaded is in the
    buffer; the first good copy for this trainer is used; with none, the levels start from zero (a new game, an
-   old save, or both copies damaged). */
+   old save, or both copies damaged).
+
+   After copy B (0xE8-0x100) a small record of other things to keep: the ball the battle's L throws. It has one copy
+   per half and goes to flash in the same write as copy B, so a power cut leaves it good or bad; bad (or another
+   trainer's, or a save from before it) reads as nothing kept, and L starts from the bag's first ball as before. */
 #include "dexnav.h"
 
 #define SaveData_GetBlock ((u8 *(*)(void *, u32))(0x020071CC | 1))
@@ -39,6 +43,17 @@ struct LevelRecord {
     u32 trainer;
     u16 species[DEXNAV_LEVEL_SPECIES];  /* most recently searched first; 0 = empty */
     u8 level[DEXNAV_LEVEL_SPECIES];
+};
+
+#define EXTRAS 0x239E8           /* right after copy B */
+#define EXTRAS_MAGIC 0x5847      /* "GX" */
+
+struct Extras {
+    u16 magic;
+    u16 crc;                      /* CRC-16-CCITT of everything after it */
+    u32 trainer;
+    u16 ball;                     /* the ball L throws in battle (battle.c); 0: none picked */
+    u16 unused;
 };
 
 static u8 sWriteStep;            /* 1-4: which of the four writes is under way */
@@ -133,11 +148,49 @@ void DexNav_RaiseLevel(u16 species)
     Copy(Buffer() + RECORD_B, r, sizeof(*r));
 }
 
+/* the kept things, or 0 when the record isn't good for this trainer */
+static struct Extras *GoodExtras(void)
+{
+    u8 *buf = Buffer();
+    struct Extras *x = (struct Extras *)(buf + EXTRAS);
+
+    if (x->magic == EXTRAS_MAGIC && x->trainer == *(u32 *)(buf + TRAINER_ID) &&
+        x->crc == Crc16((const u8 *)&x->trainer, sizeof(*x) - 4))
+        return x;
+    return 0;
+}
+
+u16 Gunk_KeptBall(void)
+{
+    struct Extras *x = GoodExtras();
+
+    return x ? x->ball : 0;
+}
+
+void Gunk_KeepBall(u16 ball)
+{
+    u8 *buf = Buffer();
+    struct Extras *x = GoodExtras();
+    u32 i;
+
+    if (!x) {
+        x = (struct Extras *)(buf + EXTRAS);
+        for (i = 0; i < sizeof(*x); i++)
+            ((u8 *)x)[i] = 0;
+        x->magic = EXTRAS_MAGIC;
+        x->trainer = *(u32 *)(buf + TRAINER_ID);
+    }
+    x->ball = ball;
+    x->crc = Crc16((const u8 *)&x->trainer, sizeof(*x) - 4);
+}
+
+/* writes 1 and 3 copy A, 2 and 4 copy B with the extras after it (half 0, then half 1) */
 static u32 StartWrite(u32 step)
 {
-    u32 at = (step & 1 ? RECORD_A : RECORD_B) + (step > 2 ? HALF_SIZE : 0);
+    u32 from = step & 1 ? RECORD_A : RECORD_B;
+    u32 size = sizeof(struct LevelRecord) + (step & 1 ? 0 : sizeof(struct Extras));
 
-    return Flash_Write(at, Buffer() + (step & 1 ? RECORD_A : RECORD_B), sizeof(struct LevelRecord), FLASH_CTX);
+    return Flash_Write(from + (step > 2 ? HALF_SIZE : 0), Buffer() + from, size, FLASH_CTX);
 }
 
 u32 Gunk_SaveMain(void *ctrl)
