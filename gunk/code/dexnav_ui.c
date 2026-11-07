@@ -56,6 +56,7 @@
 #define ARC_ICONS 7              /* a/0/0/7: palettes in file 0, species N's 32x32 icon in file 7 + 2N */
 #define ICON_FILE(sp) (7 + 2 * (sp))
 #define ICON_PALETTES 0
+#define ICON_PALETTE ((const u8 *)0x0209E474)  /* arm9: a byte per icon, its palette (0-2) in each nibble */
 #define RGCN_DATA 0x30
 #define RLCN_DATA 0x28
 #define ICON_BYTES 0x400
@@ -238,7 +239,7 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
     BG_PALETTES[0] = sPalette[C_BACKDROP];
     arc = Arc_Open(ARC_ICONS, HEAP_DEXNAV);
     pals = Arc_LoadAlloc(arc, ICON_PALETTES, HEAP_DEXNAV);
-    for (i = 0; i < 3 * 16; i++)  /* the icons' palettes (each species' own index: still to find; all use the first) */
+    for (i = 0; i < 3 * 16; i++)  /* the icons' three palettes */
         BG_PALETTES[PAL_ICON * 16 + i] = ((u16 *)(pals + RLCN_DATA))[i];
     for (i = 1; i < 16; i++)
         BG_PALETTES[PAL_SILHOUETTE * 16 + i] = SILHOUETTE;
@@ -260,7 +261,8 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
 
         ui->cell[i] = BmpWin_Create(FRAME_PANELS, x, y, CELL, CELL, PAL_UI, 1);
         Cell(ui, i);
-        ui->icon[i] = BmpWin_Create(FRAME_ICONS, x, y, 4, 4, DexNav_ListMark(i) >= 2 ? PAL_ICON : PAL_SILHOUETTE, 1);
+        ui->icon[i] = BmpWin_Create(FRAME_ICONS, x, y, 4, 4, DexNav_ListMark(i) >= 2 ?
+                                    PAL_ICON + (ICON_PALETTE[DexNav_ListSpecies(i)] & 0xF) : PAL_SILHOUETTE, 1);
         Icon(ui, arc, i);
     }
     Arc_Close(arc);
