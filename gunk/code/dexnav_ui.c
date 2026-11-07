@@ -1,6 +1,7 @@
 /* The DexNav screen as a start-menu app: the spot's species as a grid of icons (a cursor, caught/seen marks, the
-   cursor's name below; A searches, B goes back), drawn with Black's own BG, window, font and archive routines, set up the
-   way the Bag sets up its screen (overlay 70, proc 0x021BB96C). The start menu runs it like its other apps (table
+   cursor's name below; A searches, B goes back) on the bottom screen, and the cursor's species large with its status
+   and search level on the top, drawn with Black's own BG, window, font and archive routines, set up the way the Bag
+   sets up its screen (overlay 70, proc 0x021BB96C). The start menu runs it like its other apps (table
    gGunkMenuApps, app DEXNAV_APP), with the field shut down; B closes it and the menu comes back. L+R in the field
    opens the same screen through its own event (DexNavUi_FieldEvent below: fade out, close the field, run the proc, reopen
    the field, fade in), the sequence the start menu uses; B there returns to the field.
@@ -52,6 +53,10 @@
 #define MSG_ASK 16               /* "Which Pokémon will you search for?" (patches.dexnav_screen) */
 #define MSG_UNSEEN 17            /* "?????" */
 #define MSG_NOT_SEEN 26          /* "You haven't seen that Pokémon yet." */
+#define MSG_TITLE 27             /* "DexNav" */
+#define MSG_LEVEL 28             /* "Search level" */
+#define MSG_IS_CAUGHT 29         /* "Caught", "Seen", "Not seen yet": a mark's (3, 2, 1) */
+#define MSG_CAUGHT_HERE 32       /* "Caught here" */
 #define ARC_SYSTEM_TEXT 2        /* a/0/0/2 */
 #define TEXT_SPECIES 70
 #define ARC_FONT 0x17            /* a/0/2/3 */
@@ -61,13 +66,17 @@
 #define ICON_PALETTE ((const u8 *)0x0209E474)  /* arm9: a byte per icon, its palette (0-2) in each nibble */
 #define RGCN_DATA 0x30
 #define RLCN_DATA 0x28
-#define ICON_BYTES 0x400
+#define ICON_BYTES 0x200          /* the first of the file's two 32x32 frames */
 #define FRAME_ICONS 0            /* in front: the icons, scrolled 4 pixels to sit in their cells */
 #define FRAME_PANELS 1
 #define BG_PALETTES ((u16 *)0x05000000)
 #define PAL_UI 0
 #define PAL_ICON 1               /* 1-3: the icon palettes */
 #define PAL_SILHOUETTE 4         /* a Pokémon not seen yet */
+#define PAL_TOP_ICON 5           /* the top screen's icon: a copy of its species' palette */
+#define FRAME_TOP_ICON 4         /* the sub engine (the top screen): the cursor's icon at twice the size... */
+#define FRAME_TOP 5              /* ...in front of the panels */
+#define STR_EOS 0xFFFF
 #define REG_DISPCNT (*(volatile u32 *)0x04000000)
 #define REG_POWCNT (*(volatile u16 *)0x04000304)
 #define POWCNT_MAIN_ON_TOP 0x8000
@@ -76,6 +85,7 @@
 #define REG_MASTER_BRIGHT_SUB (*(volatile u16 *)0x0400106C)
 #define DISPCNT_BG0 0x100
 #define DISPCNT_BG1 0x200
+#define DISPCNT_BG0_1 (DISPCNT_BG0 | DISPCNT_BG1)
 #define DISPCNT_LAYERS 0x1F00    /* BG0-3, OBJ */
 #define REG_DISPCNT_SUB (*(volatile u32 *)0x04001000)
 #define SUB_BG_PALETTES ((u16 *)0x05000400)
@@ -102,21 +112,27 @@ struct Bmp {
 };
 
 struct DexNavUi {
-    void *title, *info;
+    void *title, *info, *topTitle, *topInfo, *topIcon, *arc;
     void *cell[DEXNAV_LIST_MAX], *icon[DEXNAV_LIST_MAX];
     void *font, *msg, *names, *str;
     u32 count, cursor;
 };
 
+#define ALIGN4 __attribute__((aligned(4)))  /* read as words: an unaligned ldr rotates */
 /* the Bag's tables (overlay 70: 0x021BBBE0 VRAM banks, mode 1 with BG mode 0, 0x021BBB40 frame 0 control: scroll,
    screen size 0x800, 256x256, screen base 0x1C, character base 0, 0x8000 of characters, priority 3); the panels'
    frame has its own screen (0x1D) and characters (base 4: 0x10000) */
 static const u32 sBanks[12] = { 1, 0, 4, 0, 2, 0, 8, 0, 0, 0, 0x200010, 0x200010 };
 static const u32 sMode[4] = { 1, 0, 0, 0 };
-static const u8 sFrameIcons[32] = { 0xFC, 0xFF, 0xFF, 0xFF, 0xFC, 0xFF, 0xFF, 0xFF, 0, 8, 0, 0, 0, 0, 0, 0,
+static const u8 sFrameIcons[32] ALIGN4 = { 0xFC, 0xFF, 0xFF, 0xFF, 0xFC, 0xFF, 0xFF, 0xFF, 0, 8, 0, 0, 0, 0, 0, 0,
                                     1, 0, 0x1C, 0, 0, 0x80, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0 };
-static const u8 sFramePanels[32] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0,
+static const u8 sFramePanels[32] ALIGN4 = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0,
                                      1, 0, 0x1D, 4, 0, 0x80, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0 };
+/* the top screen (VRAM C): the icon's frame, screen 0x1F, characters at 0x8000; the panels' screen 0x1E, characters 0 */
+static const u8 sFrameTopIcon[32] ALIGN4 = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0,
+                                      1, 0, 0x1F, 2, 0, 0x40, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0 };
+static const u8 sFrameTop[32] ALIGN4 = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0,
+                                  1, 0, 0x1E, 0, 0, 0x80, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0 };
 /* Black's dark menus: transparent, text, its shadow, frame, panel, backdrop, cursor, a cell, marks */
 static const u16 sPalette[9] = { 0x0000, 0x7FFF, 0x294A, 0x4E73, 0x2529, 0x14A5, 0x7E40, 0x318C, 0x7FFF };
 #define C_TEXT 1
@@ -213,10 +229,93 @@ static void Info(struct DexNavUi *ui, u32 msgId)
     Show(ui->info);
 }
 
+/* GFL's string buffer: u16 capacity, u16 length, u32 magic, then the characters (ASCII digits), ended by 0xFFFF */
+static void PrintNumbers(struct DexNavUi *ui, void *win, u32 a, u32 b, u32 x, u32 y)
+{
+    static const u32 tens[3] = { 100, 10, 1 };
+    u16 *chars = (u16 *)ui->str + 4;
+    u32 len = 0, part, digit, n;
+
+    for (part = 0; part < (b ? 2 : 1); part++) {  /* "a", or "a/b" */
+        u32 start = len;
+
+        n = part ? b : a;
+        for (digit = 0; digit < 3; digit++) {
+            u32 d = 0;
+
+            while (n >= tens[digit]) {  /* no division routine */
+                n -= tens[digit];
+                d++;
+            }
+            if (d || len > start || digit == 2)
+                chars[len++] = '0' + d;
+        }
+        if (!part && b)
+            chars[len++] = '/';
+    }
+    chars[len] = STR_EOS;
+    ((u16 *)ui->str)[1] = len;
+    Print(BmpWin_GetBmp(win), x, y, ui->str, ui->font, COLOUR(C_TEXT, C_SHADOW, C_PANEL));
+}
+
+/* the top screen's title: "DexNav", and how many of the spot's species are caught */
+static void TopTitle(struct DexNavUi *ui)
+{
+    u32 i, caught = 0;
+
+    for (i = 0; i < ui->count; i++)
+        caught += DexNav_ListMark(i) == 3;
+    Panel(BmpWin_GetBmp(ui->topTitle), C_FRAME, C_PANEL);
+    PrintMsg(ui, ui->topTitle, ui->msg, MSG_TITLE, 8, 4);
+    PrintMsg(ui, ui->topTitle, ui->msg, MSG_CAUGHT_HERE, 136, 4);
+    PrintNumbers(ui, ui->topTitle, caught, ui->count, 204, 4);
+    Show(ui->topTitle);
+}
+
+/* the cursor's species on the top screen: its icon at twice the size (a silhouette when not seen), its name, whether
+   it is caught or seen, and its search level */
+static void Top(struct DexNavUi *ui)
+{
+    u32 species = DexNav_ListSpecies(ui->cursor), mark = DexNav_ListMark(ui->cursor);
+    u8 *file = Arc_LoadAlloc(ui->arc, ICON_FILE(species), HEAP_DEXNAV), *chars = file + RGCN_DATA;
+    struct Bmp *b = BmpWin_GetBmp(ui->topIcon);
+    u32 x, y, i;
+
+    for (i = 0; i < 16; i++)
+        SUB_BG_PALETTES[PAL_TOP_ICON * 16 + i] = mark >= 2 ?
+            SUB_BG_PALETTES[(PAL_ICON + (ICON_PALETTE[species] & 0xF)) * 16 + i] : i ? SILHOUETTE : 0;
+    for (y = 0; y < 32; y++)
+        for (x = 0; x < 32; x++) {  /* the icon's 4x4 characters */
+            u8 p = chars[((y >> 3) * 4 + (x >> 3)) * 32 + (y & 7) * 4 + ((x & 7) >> 1)];
+            u32 c = x & 1 ? p >> 4 : p & 0xF;
+
+            SetPixel(b, 2 * x, 2 * y, c);
+            SetPixel(b, 2 * x + 1, 2 * y, c);
+            SetPixel(b, 2 * x, 2 * y + 1, c);
+            SetPixel(b, 2 * x + 1, 2 * y + 1, c);
+        }
+    Heap_Free(file);
+    Show(ui->topIcon);
+
+    Panel(BmpWin_GetBmp(ui->topInfo), C_FRAME, C_PANEL);
+    if (mark >= 2)
+        PrintMsg(ui, ui->topInfo, ui->names, species, 96, 16);
+    else
+        PrintMsg(ui, ui->topInfo, ui->msg, MSG_UNSEEN, 96, 16);
+    PrintMsg(ui, ui->topInfo, ui->msg, MSG_IS_CAUGHT + 3 - mark, 96, 40);
+    if (mark >= 2) {
+        PrintMsg(ui, ui->topInfo, ui->msg, MSG_LEVEL, 96, 64);
+        PrintNumbers(ui, ui->topInfo, DexNav_Level(species), 0, 200, 64);
+    }
+    Show(ui->topInfo);
+}
+
 static void Redraw(void)
 {
     Bg_LoadScreenReq(FRAME_PANELS);
     Bg_LoadScreenReq(FRAME_ICONS);
+    Bg_LoadScreenReq(FRAME_TOP);
+    Bg_LoadScreenReq(FRAME_TOP_ICON);
 }
 
 s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
@@ -236,15 +335,19 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
     Bg_SetMode(sMode);
     Bg_SetControl(FRAME_ICONS, sFrameIcons, 0);
     Bg_SetControl(FRAME_PANELS, sFramePanels, 0);
+    Bg_SetControl(FRAME_TOP_ICON, sFrameTopIcon, 0);
+    Bg_SetControl(FRAME_TOP, sFrameTop, 0);
     Bg_ClearScreen(FRAME_ICONS);
     Bg_ClearScreen(FRAME_PANELS);
+    Bg_ClearScreen(FRAME_TOP_ICON);
+    Bg_ClearScreen(FRAME_TOP);
     for (i = 0; i < 9; i++)
-        BG_PALETTES[PAL_UI * 16 + i] = sPalette[i];
-    BG_PALETTES[0] = sPalette[C_BACKDROP];
-    arc = Arc_Open(ARC_ICONS, HEAP_DEXNAV);
+        BG_PALETTES[PAL_UI * 16 + i] = SUB_BG_PALETTES[PAL_UI * 16 + i] = sPalette[i];
+    BG_PALETTES[0] = SUB_BG_PALETTES[0] = sPalette[C_BACKDROP];
+    ui->arc = arc = Arc_Open(ARC_ICONS, HEAP_DEXNAV);
     pals = Arc_LoadAlloc(arc, ICON_PALETTES, HEAP_DEXNAV);
     for (i = 0; i < 3 * 16; i++)  /* the icons' three palettes */
-        BG_PALETTES[PAL_ICON * 16 + i] = ((u16 *)(pals + RLCN_DATA))[i];
+        BG_PALETTES[PAL_ICON * 16 + i] = SUB_BG_PALETTES[PAL_ICON * 16 + i] = ((u16 *)(pals + RLCN_DATA))[i];
     for (i = 1; i < 16; i++)
         BG_PALETTES[PAL_SILHOUETTE * 16 + i] = SILHOUETTE;
     Heap_Free(pals);
@@ -269,14 +372,17 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
                                     PAL_ICON + (ICON_PALETTE[DexNav_ListSpecies(i)] & 0xF) : PAL_SILHOUETTE, 1);
         Icon(ui, arc, i);
     }
-    Arc_Close(arc);
     ui->info = BmpWin_Create(FRAME_PANELS, 1, 18, 30, 5, PAL_UI, 1);
     Info(ui, 0);
+    ui->topTitle = BmpWin_Create(FRAME_TOP, 1, 1, 30, 3, PAL_UI, 1);
+    TopTitle(ui);
+    ui->topInfo = BmpWin_Create(FRAME_TOP, 1, 5, 30, 12, PAL_UI, 1);
+    ui->topIcon = BmpWin_Create(FRAME_TOP_ICON, 3, 7, 8, 8, PAL_TOP_ICON, 1);
+    Top(ui);
     Redraw();
-    /* only our frames on the main screen; the sub screen just its backdrop (for now) */
-    REG_DISPCNT = (REG_DISPCNT & ~DISPCNT_LAYERS) | DISPCNT_BG0 | DISPCNT_BG1;
-    REG_DISPCNT_SUB &= ~DISPCNT_LAYERS;
-    SUB_BG_PALETTES[0] = sPalette[C_BACKDROP];
+    /* only our frames on either screen */
+    REG_DISPCNT = (REG_DISPCNT & ~DISPCNT_LAYERS) | DISPCNT_BG0_1;
+    REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~DISPCNT_LAYERS) | DISPCNT_BG0_1;
     REG_POWCNT &= ~POWCNT_MAIN_ON_TOP;  /* the main screen at the bottom (the field has it on top) */
     REG_MASTER_BRIGHT = 0;
     REG_MASTER_BRIGHT_SUB = 0;
@@ -293,6 +399,7 @@ static void Move(struct DexNavUi *ui, u32 to)
     Cell(ui, from);
     Cell(ui, to);
     Info(ui, 0);
+    Top(ui);
     Redraw();
 }
 
@@ -333,6 +440,10 @@ s32 DexNavUi_Exit(void *proc, s32 *seq, void *param, void *work)
     }
     BmpWin_Delete(ui->info);
     BmpWin_Delete(ui->title);
+    BmpWin_Delete(ui->topIcon);
+    BmpWin_Delete(ui->topInfo);
+    BmpWin_Delete(ui->topTitle);
+    Arc_Close(ui->arc);
     Str_Delete(ui->str);
     Msg_Delete(ui->names);
     Msg_Delete(ui->msg);

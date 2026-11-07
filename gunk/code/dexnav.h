@@ -13,8 +13,8 @@
 #endif
 
 u32 Gunk_BagReturn(u8 *menu, u8 *param);  /* bag.c: the start menu's return handler for the bag */
-u32 Gunk_MenuClose(u8 *menu, u32 event);
-void *DexNavUi_FieldEvent(void *gsys, void *fieldSys);  /* bag.c: an app's return: close the menu for that item event */
+u32 Gunk_MenuClose(u8 *menu, u32 event);  /* bag.c: an app's return: close the menu for that item event */
+void *DexNavUi_FieldEvent(void *gsys, void *fieldSys);  /* L+R: the screen as a field event */
 #define ITEM_EVENT_DEXNAV_PICK 7
 
 /* the bag's USE on the DexNav (bag.c): the screen for the player's spot, as an event */
