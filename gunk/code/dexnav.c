@@ -346,6 +346,31 @@ static int PlacePatch(void *fieldSys, void *enc)
 }
 
 /* with the field's per-frame input (field.c): the effect goes after PATCH_FRAMES */
+static u32 sBarKey;  /* what the search bar shows (0: no bar) */
+
+void DexNav_FieldStart(void)
+{
+    sBarKey = 0;
+    DexNavUi_BarForget();
+}
+
+/* the search bar for the search that is out: its species, search level, the chain it would extend and the perfect
+   IVs that link would give (Gunk_DexNav_EffectEncount / Gunk_DexNav_Create) */
+static void Bar(void)
+{
+    u32 chain = sPatchSpecies == sChainSpecies ? sChain : 0, next = chain < CHAIN_MAX ? chain + 1 : chain;
+    u32 perfect = next >= 30 ? 3 : next >= 20 ? 2 : next >= 10 ? 1 : 0;
+    u32 key = sPatch ? 1 | sPatchSpecies << 1 | (u32)sSearchLevel << 12 | chain << 20 : 0;
+
+    if (key == sBarKey)
+        return;
+    sBarKey = key;
+    if (key)
+        DexNavUi_Bar(sPatchSpecies, sSearchLevel, chain, perfect);
+    else
+        DexNavUi_BarRemove();
+}
+
 void DexNav_Frame(void *fieldSys)
 {
     void *enc;
@@ -363,6 +388,8 @@ void DexNav_Frame(void *fieldSys)
             DexNav_BuildList(fieldSys);
         }
     }
+    if (DEXNAV_GRAPHICAL)
+        Bar();
     if (!sPatch)
         return;
     enc = FieldSys_GetEncount(fieldSys);

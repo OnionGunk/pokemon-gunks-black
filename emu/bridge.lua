@@ -233,7 +233,7 @@ while true do
                             row[#row + 1] = string.format("%08X", (r["ARM9 " .. k] or 0) & 0xFFFFFFFF)
                         end
                         local sp = (r["ARM9 r13"] or 0) & 0xFFFFFFFF
-                        if sp >= 0x01FF8000 and sp < 0x02400000 or sp >= 0x027E0000 and sp < 0x02800000 then
+                        if sp >= 0x01FF8000 and sp < 0x02400000 or sp >= 0x027E0000 and sp < 0x02800000 or sp >= 0x02FE0000 and sp < 0x03000000 then
                             for i = 0, 23 do row[#row + 1] = string.format("%08X", memory.read_u32_le(sp + i * 4, "ARM9_System_Bus")) end
                         end
                         local f3 = io.open(path, "a")

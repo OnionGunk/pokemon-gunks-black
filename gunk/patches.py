@@ -801,6 +801,7 @@ MSG_DEXNAV_ASK, MSG_DEXNAV_UNSEEN, MSG_DEXNAV_SEEN, MSG_DEXNAV_CAUGHT, MSG_DEXNA
 MSG_DEXNAV_NOT_HERE, MSG_DEXNAV_SURF, MSG_DEXNAV_LAND, MSG_DEXNAV_FISHING, MSG_DEXNAV_NOT_SEEN = range(22, 27)
 # the graphical screen's top (gunk/code/dexnav_ui.c MSG_TITLE to MSG_CAUGHT_HERE)
 MSG_DEXNAV_TITLE, MSG_DEXNAV_LEVEL, MSG_DEXNAV_IS_CAUGHT, MSG_DEXNAV_IS_SEEN, MSG_DEXNAV_IS_UNSEEN, MSG_DEXNAV_CAUGHT_HERE = range(27, 33)
+MSG_DEXNAV_SEARCH_LV, MSG_DEXNAV_CHAIN = 33, 34  # the search bar
 GUNK_DEXNAV_MESSAGE = 6
 DEXNAV_LIST_MAX = 12  # dexnav.h
 OP_MENU_OPEN, OP_MENU_ADD, OP_MENU_RUN = 0xB2, 0xAF, 0xB0  # (x u8, y u8, cursor, B cancels u8, var); (msg, help, value)
@@ -828,7 +829,8 @@ def dexnav_screen(rom):
                   text5.chars('Look for ') + name + text5.chars(' away from the water.'),
                   name + text5.chars(' can only be found by fishing here.'),
                   text5.chars("You haven't seen that Pokémon yet."), text5.chars('DexNav'), text5.chars('Search level'),
-                  text5.chars('Caught'), text5.chars('Seen'), text5.chars('Not seen yet'), text5.chars('Caught here')):
+                  text5.chars('Caught'), text5.chars('Seen'), text5.chars('Not seen yet'), text5.chars('Caught here'),
+                  text5.chars('Search Lv.'), text5.chars('Chain')):
             items.append((t, attr))
     _edit_text(rom, 'a/0/0/3', TEXT_FIELD_COMMON, text)
     S = script5

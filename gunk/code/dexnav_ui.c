@@ -57,6 +57,8 @@
 #define MSG_LEVEL 28             /* "Search level" */
 #define MSG_IS_CAUGHT 29         /* "Caught", "Seen", "Not seen yet": a mark's (3, 2, 1) */
 #define MSG_CAUGHT_HERE 32       /* "Caught here" */
+#define MSG_SEARCH_LV 33         /* "Search Lv." (the search bar) */
+#define MSG_CHAIN 34             /* "Chain" */
 #define ARC_SYSTEM_TEXT 2        /* a/0/0/2 */
 #define TEXT_SPECIES 70
 #define ARC_FONT 0x17            /* a/0/2/3 */
@@ -115,7 +117,7 @@ struct DexNavUi {
     void *title, *info, *topTitle, *topInfo, *topIcon, *arc;
     void *cell[DEXNAV_LIST_MAX], *icon[DEXNAV_LIST_MAX];
     void *font, *msg, *names, *str;
-    u32 count, cursor;
+    u32 count, cursor, colour;
 };
 
 #define ALIGN4 __attribute__((aligned(4)))  /* read as words: an unaligned ldr rotates */
@@ -185,7 +187,7 @@ static void Show(void *win)
 static void PrintMsg(struct DexNavUi *ui, void *win, void *msg, u32 id, u32 x, u32 y)
 {
     Msg_GetString(msg, id, ui->str);
-    Print(BmpWin_GetBmp(win), x, y, ui->str, ui->font, COLOUR(C_TEXT, C_SHADOW, C_PANEL));
+    Print(BmpWin_GetBmp(win), x, y, ui->str, ui->font, ui->colour);
 }
 
 /* row i's icon into its window (the window's palette: the icons' or the silhouette's) */
@@ -255,7 +257,7 @@ static void PrintNumbers(struct DexNavUi *ui, void *win, u32 a, u32 b, u32 x, u3
     }
     chars[len] = STR_EOS;
     ((u16 *)ui->str)[1] = len;
-    Print(BmpWin_GetBmp(win), x, y, ui->str, ui->font, COLOUR(C_TEXT, C_SHADOW, C_PANEL));
+    Print(BmpWin_GetBmp(win), x, y, ui->str, ui->font, ui->colour);
 }
 
 /* the top screen's title: "DexNav", and how many of the spot's species are caught */
@@ -356,6 +358,7 @@ s32 DexNavUi_Init(void *proc, s32 *seq, void *param, void *work)
     ui->msg = Msg_Create(0, ARC_TEXT, TEXT_FIELD_COMMON, HEAP_DEXNAV);
     ui->names = Msg_Create(0, ARC_SYSTEM_TEXT, TEXT_SPECIES, HEAP_DEXNAV);
     ui->str = Str_Create(0x80, HEAP_DEXNAV);
+    ui->colour = COLOUR(C_TEXT, C_SHADOW, C_PANEL);
     ui->count = DexNav_ListCount();
     ui->cursor = DexNav_ListCursor();
 
@@ -453,6 +456,78 @@ s32 DexNavUi_Exit(void *proc, s32 *seq, void *param, void *work)
     Proc_FreeWork(proc);
     Heap_Delete(HEAP_DEXNAV);
     return 1;
+}
+
+/* The search bar: while a search's effect is out, a white box at the top of the field's top screen (where no
+   message box goes) shows the species, its search level, the chain and the potential (a box per perfect IV the
+   encounter will get). It is a window on the field's message frame (BG2, palette 14: the message box's white and
+   grey), so it lives in the field's window system: the field's restart frees it (DexNavUi_BarForget). Text and font
+   come from a small heap of their own for the drawing only. */
+#define FRAME_FIELD_TEXT 2
+#define PAL_FIELD_TEXT 14
+#define F_WHITE 1
+#define F_GREY 2
+#define HEAP_BAR_SIZE 0x10000
+#define BmpWin_ClearScreen ((void (*)(void *))0x020456F8)
+static void *sBar;
+
+void DexNavUi_BarForget(void)
+{
+    sBar = 0;
+}
+
+void DexNavUi_BarRemove(void)
+{
+    if (!sBar)
+        return;
+    BmpWin_ClearScreen(sBar);
+    Bg_LoadScreenReq(FRAME_FIELD_TEXT);
+    BmpWin_Delete(sBar);
+    sBar = 0;
+}
+
+void DexNavUi_Bar(u32 species, u32 level, u32 chain, u32 perfect)
+{
+    struct DexNavUi ui;
+    struct Bmp *b;
+    u32 i;
+
+    if (!sBar)
+        sBar = BmpWin_Create(FRAME_FIELD_TEXT, 1, 1, 30, 4, PAL_FIELD_TEXT, 1);
+    b = BmpWin_GetBmp(sBar);
+    Heap_Create(HEAP_PARENT, HEAP_DEXNAV, HEAP_BAR_SIZE);
+    ui.font = Font_Create(ARC_FONT, 0, 0, 0, HEAP_DEXNAV);
+    ui.msg = Msg_Create(0, ARC_TEXT, TEXT_FIELD_COMMON, HEAP_DEXNAV);
+    ui.names = Msg_Create(0, ARC_SYSTEM_TEXT, TEXT_SPECIES, HEAP_DEXNAV);
+    ui.str = Str_Create(0x80, HEAP_DEXNAV);
+    ui.colour = COLOUR(F_GREY, F_WHITE, F_WHITE);
+
+    Panel(b, F_GREY, F_WHITE);
+    PrintMsg(&ui, sBar, ui.names, species, 8, 4);
+    PrintMsg(&ui, sBar, ui.msg, MSG_SEARCH_LV, 136, 4);
+    PrintNumbers(&ui, sBar, level, 0, 208, 4);
+    PrintMsg(&ui, sBar, ui.msg, MSG_CHAIN, 8, 16);
+    PrintNumbers(&ui, sBar, chain, 0, 56, 16);
+    for (i = 0; i < 3; i++) {  /* the potential: a filled box per perfect IV, an empty one for the rest */
+        u32 x = 196 + i * 12;
+
+        Fill(b, x, 21, x + 8, 29, F_GREY);
+        if (i >= perfect)
+            Fill(b, x + 1, 22, x + 7, 28, F_WHITE);
+    }
+    /* the frame again: the lines' text cells paint over its edges */
+    Fill(b, 1, 0, b->w - 1, 2, F_GREY);
+    Fill(b, 1, b->h - 2, b->w - 1, b->h, F_GREY);
+    Fill(b, 0, 1, 2, b->h - 1, F_GREY);
+    Fill(b, b->w - 2, 1, b->w, b->h - 1, F_GREY);
+    Show(sBar);
+    Bg_LoadScreenReq(FRAME_FIELD_TEXT);
+
+    Str_Delete(ui.str);
+    Msg_Delete(ui.names);
+    Msg_Delete(ui.msg);
+    Font_Delete(ui.font);
+    Heap_Delete(HEAP_DEXNAV);
 }
 
 const u32 gDexNavUiProc[3] = { (u32)DexNavUi_Init, (u32)DexNavUi_Main, (u32)DexNavUi_Exit };

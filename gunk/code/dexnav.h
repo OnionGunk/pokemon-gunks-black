@@ -14,7 +14,11 @@
 
 u32 Gunk_BagReturn(u8 *menu, u8 *param);  /* bag.c: the start menu's return handler for the bag */
 u32 Gunk_MenuClose(u8 *menu, u32 event);  /* bag.c: an app's return: close the menu for that item event */
-void *DexNavUi_FieldEvent(void *gsys, void *fieldSys);  /* L+R: the screen as a field event */
+void *DexNavUi_FieldEvent(void *gsys, void *fieldSys);  /* L+R: the screen as a field event (dexnav_ui.c) */
+void DexNavUi_Bar(u32 species, u32 level, u32 chain, u32 perfect);  /* the search bar: show or redraw */
+void DexNavUi_BarRemove(void);
+void DexNavUi_BarForget(void);            /* the field restarted: its windows are gone */
+void DexNav_FieldStart(void);             /* dexnav.c: the field (overlay 21) was loaded again */
 #define ITEM_EVENT_DEXNAV_PICK 7
 
 /* the bag's USE on the DexNav (bag.c): the screen for the player's spot, as an event */
