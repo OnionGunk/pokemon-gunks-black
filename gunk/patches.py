@@ -1038,13 +1038,22 @@ def gen5_follower_sprites(rom):
     return table
 
 
+OP_APPLY_MOVEMENT = 0x64
+
+
 def followers(rom):
     """Follower Pokémon (gunk/code/follower.c): after the field loads a zone's objects (FUN_overlay_d_21__021894e0,
     called at 0x021894BC on crossing into another zone) and after a warp (FUN_overlay_d_20__021858e4, called at
     0x021858A2), the follower is added with Black's unused "pair" movement, which walks after the
     player. That movement picks its step's speed from the player's current animation code, but Black's copy reads
     the follower's own (FUN_overlay_d_21__0219ba2c drops the player it just looked up), which is none (0xFF) for a
-    follower that hasn't moved yet, so it never steps: the `adds r0, r4` that replaces the player goes."""
+    follower that hasn't moved yet, so it never steps: the `adds r0, r4` that replaces the player goes.
+    Cutscenes: script command 0x64 (ApplyMovement) goes through Gunk_ScrApplyMovement, which takes the follower back
+    in its ball before anyone is moved; it comes out again behind the player's first step after the script."""
+    code = bytearray(rom.overlay(OVL_SCRIPT))
+    slot = SCRIPT_TABLE + OP_APPLY_MOVEMENT * 4 - rom.overlay_base(OVL_SCRIPT)
+    patch(code, slot, '99161b02', struct.pack('<I', code_syms['Gunk_ScrApplyMovement'] | 1).hex())
+    rom.replace_overlay(OVL_SCRIPT, bytes(code))
     code = bytearray(rom.overlay(OVL_FIELD))
     base = rom.overlay_base(OVL_FIELD)
     site = 0x021894BC

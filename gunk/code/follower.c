@@ -153,6 +153,22 @@ void Gunk_LoadWarpObjects(u8 *gameData, u8 *location)
         MMdl_Delete(follower);
 }
 
+/* A cutscene: a script moving anyone (command 0x64, ApplyMovement; FUN_overlay_d_21__021b1698) takes the follower
+   back in its ball first. The field's input doesn't run during a script, so the follower would stand where it was
+   and trail the player afterwards; this way Follower_Frame brings it out again behind the player's first step
+   once the script is over. */
+#define ScrWork_MMdlSys ((void *(*)(void *))(0x0215A5EC | 1))
+#define ScrCmd_ApplyMovement ((u32 (*)(void *, void *))(0x021B1698 | 1))
+
+u32 Gunk_ScrApplyMovement(void *ctx, void *work)
+{
+    void *follower = MMdlSys_Search(ScrWork_MMdlSys(work), FOLLOWER_ID);
+
+    if (follower)
+        MMdl_Delete(follower);
+    return ScrCmd_ApplyMovement(ctx, work);
+}
+
 void Follower_Frame(void *fieldSys)
 {
     void *mmdlSys = *(void **)((u8 *)fieldSys + FIELD_MMDLSYS);
